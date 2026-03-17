@@ -181,10 +181,23 @@ extern void ShellTask(void);
 //#define FREQ_TWO      (2050)
 //#define TIMER3_FREQ   (133600)
 
-
+#if 1
 #define FREQ_ONE      (1730)
-#define FREQ_TWO      (2070)
+#define FREQ_TWO      (FREQ_ONE + 340)
 #define TIMER3_FREQ   (133600)
+#endif
+
+#if 0
+#warning DCF49
+#define FREQ_ONE      (1895)
+#define FREQ_TWO      (2235)
+#define TIMER3_FREQ   (129100-2000)
+
+#warning DCF39
+#define FREQ_ONE      (1715)
+#define FREQ_TWO      (FREQ_ONE+340)
+#define TIMER3_FREQ   (139000-2000)
+#endif
 
 
 #define NOISE_FLOOR   5000
@@ -217,7 +230,7 @@ int32_t Goertzel_mag(const uint16_t *samples,
 
 
 int16_t Goertzel_coef_q15(float freq, int samp_rate);
-int32_t Goertzel_mag_fast_q15(const uint16_t *samples,
+int32_t Goertzel_mag_fast_q15(const int16_t *samples,
                               int depth,
                               int16_t coef,
                               int32_t adc_mid);
@@ -326,19 +339,20 @@ int search_freq ( uint16_t samples[], int depth){
      float TONE_ONE_MAG;
      static int first = 0;
 
-     int minimum = 0xEFFF;
-     int maximum = -1;
+     int minimum = INT_MAX;
+     int maximum = INT_MIN;
 
      for(int i = 0; i < depth; i++) {
     	  if (minimum >(int) samples[i]) minimum = (int) samples[i];
     	  if (maximum <(int) samples[i]) maximum = (int) samples[i];
      }
+     int avg = (maximum+minimum)/2;
      if (first == 0) {
         first = 1;
          Uart2_printf("FREQ:");
          for (int i = 1500 ; i < 2100 ; i=i+20){
 
-            Uart2_printf("%d;");
+            Uart2_printf("%d;", i);
 
          }
           Uart2_printf("\r\n");
@@ -348,7 +362,7 @@ int search_freq ( uint16_t samples[], int depth){
     	float coef =  Goertzel_coef(i,  SAMPLE_RATE);
 
 
-        TONE_ONE_MAG = Goertzel_mag(samples,depth,coef,(maximum-minimum)/2);
+        TONE_ONE_MAG = Goertzel_mag(samples,depth,coef,avg);
         if (TONE_ONE_MAG > max) {
                 max = TONE_ONE_MAG;
                 max_id = i;
@@ -436,7 +450,7 @@ int main(void)
   RFC4_low();
 
   AGC1_high();
-  AGC2_low();
+  AGC2_high();
   AGC3_low();
   AGC4_low();
 
@@ -489,7 +503,10 @@ int main(void)
 			   sq_discard(&q_signal,(SAMPLE_RATE / 1000));
 
 			   if (search){
-				   search_freq((uint16_t *)buffer,buffer_size);
+                    if (++send_snr_cnt >= 1000){
+                        send_snr_cnt = 0;
+                        search_freq((uint16_t *)buffer,buffer_size);
+                    }
 			   }
 
 			   loop(buffer,(SAMPLE_RATE / 1000) * 4);
@@ -1637,7 +1654,7 @@ int16_t Goertzel_coef_q15(float freq, int samp_rate)
     return (int16_t)(c * 32768.0f);   // Q15
 }
 
-int32_t Goertzel_mag_fast_q15(const uint16_t *samples,
+int32_t Goertzel_mag_fast_q15(const int16_t *samples,
                               int depth,
                               int16_t coef,
                               int32_t adc_mid)
@@ -1657,7 +1674,7 @@ int32_t Goertzel_mag_fast_q15(const uint16_t *samples,
         q1 = q0;
     }
 
-#if 1
+#if 0
     int32_t mag = abs(q1)+abs(q2) ;
 #else
     // magnitude² (csak itt 64bit → OK)
@@ -1665,7 +1682,10 @@ int32_t Goertzel_mag_fast_q15(const uint16_t *samples,
           (int64_t)q1 * q1
         + (int64_t)q2 * q2
         - ((int64_t)coef * q1 >> 15) * q2;
+    mag = sqrt((double)mag);
+
 #endif
+
     if (mag < 0) mag = 0;
     if (mag > INT32_MAX) mag = INT32_MAX;
 
@@ -1871,8 +1891,8 @@ void loop(int16_t* buffer, int depth) {
 
 
 
-  min = 4097;
-  max = -1;
+  min = INT_MAX;
+  max = INT_MIN;
   signal = FLT_MIN;
 
   for(int i = 0; i < depth; i++) {
@@ -1880,13 +1900,51 @@ void loop(int16_t* buffer, int depth) {
 	  if (max <(int) buffer[i]) max = (int) buffer[i];
   }
 
- int32_t avg = (max - min) / 2;
+int32_t avg = (max + min) / 2;
+/*
+  min = INT_MAX;
+  max = INT_MIN;
+
+ for(int i = 0; i < depth; i++) {
+      buffer[i] = buffer[i] - avg;
+	  if (min >(int) buffer[i]) min = (int) buffer[i];
+	  if (max <(int) buffer[i]) max = (int) buffer[i];
+}
+avg = 0;
+
+*/
+
+int32_t current_avg = (min + max) / 2;
+int32_t range = max - min;
+
+// 3. Shift meghatározása (max 15-bites tartományig, hogy a Goertzel ne csorduljon túl)
+uint8_t shift = 0;
+if (range > 0) {
+    if (range < 256)       shift = 4; // ~8x erősítés
+    else if (range < 512)  shift = 3; // ~4x erősítés
+    else if (range < 1024) shift = 2; // ~2x erősítés
+    else if (range < 2048) shift = 1; // ~2x erősítés
+    else                   shift = 0; // ~1x erősítés
+}
+
+min = INT_MAX,
+max = INT_MIN;
+
+for(int i = 0; i < depth; i++) {
+    // (Jel - Átlag) -> 0 közepű jel, majd eltolás a hangerőhöz
+    buffer[i] = (int16_t)((buffer[i] - current_avg) << shift);
+
+    if (min > buffer[i]) min = buffer[i];
+    if (max < buffer[i]) max = buffer[i];
+}
+avg = 0;
+
 #if 0
   float m1 = Goertzel_mag(buffer, depth, coef1,avg);
   float m2 = Goertzel_mag(buffer, depth, coef2, avg);
 #else
-  int32_t m1 = Goertzel_mag_fast_q15((uint16_t *)buffer, depth,(int16_t) coef1, avg);
-  int32_t m2 = Goertzel_mag_fast_q15((uint16_t *)buffer, depth,(int16_t) coef2, avg);
+  int32_t m1 = Goertzel_mag_fast_q15((int16_t *)buffer, depth,(int16_t) coef1, avg);
+  int32_t m2 = Goertzel_mag_fast_q15((int16_t *)buffer, depth,(int16_t) coef2, avg);
 #endif
 
   max_snr1 = MAX((int)m1,max_snr1);
@@ -2138,8 +2196,8 @@ void loop2(int16_t *buffer, int depth)
 
     /* ================= SIGNAL RANGE ================= */
     /// int32_t
-    min = 0xFFFFF;
-    max = -1;
+    min = INT_MAX;
+    max = INT_MIN;
 
     for(int i=0;i<depth;i++)
     {
@@ -2151,12 +2209,15 @@ void loop2(int16_t *buffer, int depth)
 
     int32_t avg = (min + max) >> 1;
 
+    for(int i=0;i<depth;i++)
+        buffer[i] -= avg;
+
     /* =================================================
        GOERTZEL
        ================================================= */
 
-    int32_t m1 = Goertzel_mag_fast_q15((uint16_t*)buffer, depth, (int16_t)coef1, avg);
-    int32_t m2 = Goertzel_mag_fast_q15((uint16_t*)buffer, depth, (int16_t)coef2, avg);
+    int32_t m1 = Goertzel_mag_fast_q15((int16_t*)buffer, depth, (int16_t)coef1, avg);
+    int32_t m2 = Goertzel_mag_fast_q15((int16_t*)buffer, depth, (int16_t)coef2, avg);
 
 
 #if 1
@@ -2197,15 +2258,19 @@ void loop2(int16_t *buffer, int depth)
 
     /* ================= MAJORITY FILTER ================= */
 
-    bit_hist = (bit_hist << 1) | raw_bit;
-
-    uint8_t ones = __builtin_popcount(bit_hist & 0x07);
-
-    uint8_t fsk_bit = (ones >= 2);
+    bit_hist = ((bit_hist << 1) | raw_bit) & 0x07;
+    uint8_t fsk_bit = (__builtin_popcount(bit_hist) >= 2);
 
     /* =================================================
        UART DECODER
        ================================================= */
+
+    static uint8_t bit_clk = 0;
+
+    if(++bit_clk < 5)
+    return;
+
+    bit_clk = 0;
 
     switch(uart_state)
     {
@@ -2227,10 +2292,13 @@ void loop2(int16_t *buffer, int depth)
 
         case 1:
 
-            byte >>= 1;
+            //byte >>= 1;
 
-            if(fsk_bit)
-                byte |= 0x80;
+            if(fsk_bit){
+                byte |= (fsk_bit << bit_cnt);
+                bit_cnt++;
+            }
+                //byte |= 0x80;
 
             bit_cnt++;
 

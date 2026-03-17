@@ -332,10 +332,10 @@ static int     cmd_snr           ( SHELL_TERMINAL_ST *terminal, int argc, char *
 	cmd_printf("SNR : %d , adc ( %d,  %d) snr ( %d,  %d) / ( %d,  %d)\r\n", (int)snr, (int)min, (int) max, min_snr1,
 			max_snr1,min_snr2 ,max_snr2);
 
-	max_snr1 = -1;
-	max_snr2 = -1;
-	min_snr1 = 65535;
-	min_snr2 = 65535;
+	max_snr1 = INT_MIN;
+	max_snr2 = INT_MIN;
+	min_snr1 = INT_MAX;
+	min_snr2 = INT_MAX;
 	return 0;
 }
 static int     cmd_agc            ( SHELL_TERMINAL_ST *terminal, int argc, char ** argv){
