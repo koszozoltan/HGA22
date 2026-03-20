@@ -110,6 +110,7 @@ extern int max;
 extern int send_array;
 extern int send_snr;
 extern int search;
+extern int agc_disable;
 
 #define BV(x)                 (1UL << (x))
 #define CLRBIT(reg, bit)      (reg) &= ~BV(bit)
@@ -168,6 +169,9 @@ void AdcGrpRegularOverrunError_Callback(void);
 #define RTC_ASYNCH_PREDIV  0x7F
 #define RTC_SYNCH_PREDIV   0x00FF
 #endif
+
+
+#define BUILD_DATE __DATE__ " " __TIME__
 
 
 /* USER CODE BEGIN Private defines */
