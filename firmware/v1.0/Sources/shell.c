@@ -338,10 +338,24 @@ static int     cmd_snr           ( SHELL_TERMINAL_ST *terminal, int argc, char *
 	min_snr2 = INT_MAX;
 	return 0;
 }
+
+
+
+extern void cmd_agc_power(int range);
+
 static int     cmd_agc            ( SHELL_TERMINAL_ST *terminal, int argc, char ** argv){
 	int ch    = -1;
 	    int value = -1;
+
+	    if (argc == 2){
+	        value = atoi(&argv[1][0]);
+	        cmd_agc_power(value);
+            cmd_printf("AGC[%d] %s (0x%X)\r\n",ch,value==0?"low":"high", agc);
+            agc_disable = 1;
+	    }
+
 		if (argc >= 3){
+                agc_disable = 1;
 		        ch    = atoi(&argv[1][0]);
 		        value = atoi(&argv[2][0]);
 		        switch(ch){
