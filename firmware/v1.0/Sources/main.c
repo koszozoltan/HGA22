@@ -34,63 +34,13 @@
 /* Private define ------------------------------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
 
-///* Timeout values for ADC operations. */
-//  /* (calibration, enable settling time, disable settling time, ...)          */
-//  /* Values defined to be higher than worst cases: low clock frequency,       */
-//  /* maximum prescalers.                                                      */
-//  /* Note: ADC channel configuration ready (ADC_CHANNEL_CONF_RDY_TIMEOUT_MS)  */
-//  /*       is added in CubeMx code section.                                   */
-//  /* Unit: ms                                                                 */
-//  #define ADC_CALIBRATION_TIMEOUT_MS       (   1UL)
-//  #define ADC_ENABLE_TIMEOUT_MS            (   1UL)
-//  #define ADC_DISABLE_TIMEOUT_MS           (   1UL)
-//  #define ADC_STOP_CONVERSION_TIMEOUT_MS   (   1UL)
-//  #define ADC_CONVERSION_TIMEOUT_MS        (4000UL)
-//
-//  /* Delay between ADC end of calibration and ADC enable.                     */
-//  /* Delay estimation in CPU cycles: Case of ADC enable done                  */
-//  /* immediately after ADC calibration, ADC clock setting slow                */
-//  /* (LL_ADC_CLOCK_ASYNC_DIV32). Use a higher delay if ratio                  */
-//  /* (CPU clock / ADC clock) is above 32.                                     */
-//  #define ADC_DELAY_CALIB_ENABLE_CPU_CYCLES  (LL_ADC_DELAY_CALIB_ENABLE_ADC_CYCLES * 32)
-//
-///* Definitions of environment analog values */
-//  /* Value of analog reference voltage (Vref+), connected to analog voltage   */
-//  /* supply Vdda (unit: mV).                                                  */
-//  #define VDDA_APPLI                       (3300UL)
-//
-///* Definitions of data related to this example */
-//  /* Definition of ADCx conversions data table size */
-////  #define ADC_CONVERTED_DATA_BUFFER_SIZE   (  64UL)
-//  #define ADC_CONVERTED_DATA_BUFFER_SIZE   (  8UL)
-//
-//
-//  /* Init variable out of expected ADC conversion data range */
-//  #define VAR_CONVERTED_DATA_INIT_VALUE    (__LL_ADC_DIGITAL_SCALE(LL_ADC_RESOLUTION_12B) + 1)
-//
-//
-//
-//
-//  /* Parameters of time base (used as ADC conversion trigger) */
-//  /* Time base frequency (unit: Hz). With a timer 16 bits and time base       */
-//  /* freq max 32kHz, range is [min=1Hz, max=32kHz].                           */
-//  #define TIMER_FREQUENCY_HZ               (8000UL)
-//
-////  #define TIMER_FREQUENCY_HZ               (8000UL)
-//
-//  /* Time base range frequency maximum (unit: Hz).*/
-//  /* With a timer 16 bits, minimum frequency will be 1/32000 times this value.*/
-//  #define TIMER_FREQUENCY_RANGE_MAX_HZ    (32000UL)
+
 
 
 /* Private variables ---------------------------------------------------------*/
 
 UART_HandleTypeDef huart2;
 
-/* Duty cycle index */
-//static uint8_t iDutyCycle = 0;
-
-/* Measured duty cycle */
 __IO uint32_t uwMeasuredDutyCycle = 0;
 
 /* TIM2 Clock */
@@ -98,7 +48,9 @@ static uint32_t TimOutClock = 1;
 uint32_t timxPrescaler = 0;
 uint32_t timxPeriod = 0;
 
-
+void Error_Handler2(int);
+static void SystemClockHSIUSB48_Config(void);
+static inline void board_clock_init(void) ;
 
 int cap = 0;
 int agc = 0;
@@ -111,6 +63,8 @@ int max_snr1 =0;
 int max_snr2 =0;
 int min_snr1 =0;
 int min_snr2 =0;
+
+int agc_disable = 0;
 
 
 volatile uint64_t unix_us = 0;// += 1000ULL;
@@ -125,9 +79,6 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void Timer3Init(void);
 
-//static void MX_DMA_Init(void);
-//static void MX_ADC1_Init(void);
-//static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 
 void ADC_Init(void);
@@ -155,20 +106,8 @@ extern void udp_server_init(void);
 extern void ShellTask(void);
 
 
-//__IO uint16_t uhADCxConvertedData[ADC_CONVERTED_DATA_BUFFER_SIZE];
-//
-//__IO uint8_t ubDmaTransferStatus = 2U; /* Variable set into DMA interruption callback */
-//
-//
-//__IO uint8_t ubDmaTransferCnt= 0; /* Variable set into DMA interruption callback */
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
-
-
-//#define SAMPLE_RATE   8000
-//#define DEPTH         32        // 4 ms
-//#define OFFSET_BITS   5         // többségi döntés
-//#define BITBUF_SIZE   16
 
 #define SAMPLE_RATE TIMER_FREQUENCY_HZ
 
@@ -177,14 +116,29 @@ extern void ShellTask(void);
 #define BITBUF_SIZE   16
 
 
-//#define FREQ_ONE      (1750)
-//#define FREQ_TWO      (2050)
-//#define TIMER3_FREQ   (133600)
 
-
+#if 1
 #define FREQ_ONE      (1730)
-#define FREQ_TWO      (2070)
-#define TIMER3_FREQ   (133600)
+#define FREQ_TWO      (FREQ_ONE + 340)
+#define TIMER3_FREQ   (135600-2000)
+#endif
+
+#if 0
+#warning DCF49
+//#define FREQ_ONE      (1730)
+//#define FREQ_TWO      (FREQ_ONE + 340)
+
+#define FREQ_ONE      (1555)
+#define FREQ_TWO      (1895)
+#define TIMER3_FREQ   (129100-2000)
+
+
+#warning DCF39
+#define FREQ_ONE      (1720)
+#define FREQ_TWO      (FREQ_ONE+340)
+#define TIMER3_FREQ   (139000-2000)
+
+#endif
 
 
 #define NOISE_FLOOR   5000
@@ -205,7 +159,7 @@ int max = -1;
 uint8_t 	bit_to_byte(uint8_t bit, uint8_t *out);
 uint32_t 	getBits(const uint8_t *data, uint32_t pos, uint32_t len);
 void 		parse_frame(uint8_t *frame);
-#if 0
+#if 1
 float 		Goertzel_coef(float freq, int samp_rate);
 float 		Goertzel_mag(uint16_t samples[], int depth, float coef, int adc_midpoint);
 #else
@@ -215,16 +169,15 @@ int32_t Goertzel_mag(const uint16_t *samples,
                             int32_t coef,
                             int32_t adc_midpoint);
 
-
+#endif
 int16_t Goertzel_coef_q15(float freq, int samp_rate);
-int32_t Goertzel_mag_fast_q15(const uint16_t *samples,
+int32_t Goertzel_mag_fast_q15(const int16_t *samples,
                               int depth,
                               int16_t coef,
                               int32_t adc_mid);
 
 
 
-#endif
 
 void	 	loop(int16_t *buffer, int depth);
 void	 	loop2(int16_t *buffer, int depth);
@@ -326,35 +279,66 @@ int search_freq ( uint16_t samples[], int depth){
      float TONE_ONE_MAG;
      static int first = 0;
 
-     int minimum = 0xEFFF;
-     int maximum = -1;
+     int minimum = INT_MAX;
+     int maximum = INT_MIN;
 
      for(int i = 0; i < depth; i++) {
     	  if (minimum >(int) samples[i]) minimum = (int) samples[i];
     	  if (maximum <(int) samples[i]) maximum = (int) samples[i];
      }
+     int avg = (maximum+minimum)/2;
      if (first == 0) {
         first = 1;
          Uart2_printf("FREQ:");
-         for (int i = 1500 ; i < 2100 ; i=i+20){
+         for (int i = 1700 ; i < 2100 ; i=i+10){
 
-            Uart2_printf("%d;");
+            Uart2_printf("%d;", i);
 
          }
           Uart2_printf("\r\n");
      }
 
-     for (int i = 1500 ; i < 2100 ; i=i+20){
+     float sum = 0;
+     int   avg_cnt = 0;
+     float p1 = 0;
+     float p2 = 0;
+     int   avg_first = 1;
+
+     for (int i = 1700 ; i < 2100 ; i=i+10){
+
     	float coef =  Goertzel_coef(i,  SAMPLE_RATE);
 
 
-        TONE_ONE_MAG = Goertzel_mag(samples,depth,coef,(maximum-minimum)/2);
+        TONE_ONE_MAG = Goertzel_mag(samples,depth,coef,avg);
         if (TONE_ONE_MAG > max) {
                 max = TONE_ONE_MAG;
                 max_id = i;
         }
-        Uart2_printf("%d;", (int)sqrt(TONE_ONE_MAG));
+        if ((i ==FREQ_ONE) || (i ==FREQ_TWO)){
+//            Uart2_printf("[%d];", (int)TONE_ONE_MAG / 100);
+        }else {
+//            Uart2_printf("%d;", (int)TONE_ONE_MAG  / 100);
+        }
+        if (i == FREQ_ONE) {
+            p1 = TONE_ONE_MAG;
+        }
+        if (i == FREQ_TWO) {
+            p2 = TONE_ONE_MAG;
+        }
+        if (avg_first){
+            avg_first = 0;
+            sum += TONE_ONE_MAG;
+        }
 
+        sum += TONE_ONE_MAG;
+        sum = sum /2;
+
+     }
+     {
+
+      float snr1 = 100 * log10 ( p1 / sum );
+      float snr2 = 100 * log10 ( p2 / sum );
+       Uart2_printf("%d;%d",(int)snr1,(int)snr2 );
      }
       Uart2_printf("\r\n");
 
@@ -372,13 +356,12 @@ extern int main_tinyusb(void);
 int main(void)
 {
 
-
-
-  SystemClock_Config();
   HAL_Init();
-
-
   BSP_LED_Init(LED1);
+  //SystemClockHSIUSB48_Config() ;
+  board_clock_init();
+
+  HAL_Init();
 
 
   sq_init(&q_signal, (int16_t*)signal_buffer, 128);
@@ -406,7 +389,9 @@ int main(void)
   coef1 =  Goertzel_coef_q15(FREQ_ONE,SAMPLE_RATE);
   coef2 =  Goertzel_coef_q15(FREQ_TWO,SAMPLE_RATE);
 #endif
-  Uart2_printf("\r\nHGA22 RECEIVER RNDIS V1.0\r\n>\r\n");
+  Uart2_printf("\r\nHGA22 RECEIVER RNDIS V1.0>\r\n");
+  Uart2_printf("%s %s\r\n", BUILD_DATE);
+
   Uart2_rx_printf("-h\r\n");
   Uart2_rx_printf("?\r\n");
 
@@ -436,7 +421,7 @@ int main(void)
   RFC4_low();
 
   AGC1_high();
-  AGC2_low();
+  AGC2_high();
   AGC3_low();
   AGC4_low();
 
@@ -447,12 +432,11 @@ int main(void)
 	__HAL_RCC_GPIOD_CLK_ENABLE();
 	__HAL_RCC_SYSCFG_CLK_ENABLE();
 	__HAL_RCC_PWR_CLK_ENABLE();
-
+#if 1
   main_tinyusb();
- // tcp_server_init();
   udp_server_init();
 
-
+#endif
 
 
   while(1){
@@ -461,8 +445,9 @@ int main(void)
 #else
 #warning ShellTask
 #endif
+#if 1
 	  loop_tinyusb();
-
+#endif
 
 	  if(ubDmaTransferStatus == 1) {
 		  //LED_On();
@@ -489,7 +474,10 @@ int main(void)
 			   sq_discard(&q_signal,(SAMPLE_RATE / 1000));
 
 			   if (search){
-				   search_freq((uint16_t *)buffer,buffer_size);
+                    if (++send_snr_cnt >= 200){
+                        send_snr_cnt = 0;
+                        search_freq((uint16_t *)buffer,buffer_size);
+                    }
 			   }
 
 			   loop(buffer,(SAMPLE_RATE / 1000) * 4);
@@ -589,6 +577,95 @@ static void Timer3Init(void) {
  LL_TIM_GenerateEvent_UPDATE(TIM3);
 }
 
+
+
+static void SystemClockHSIUSB48_Config(void)
+{
+
+  //RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_CRSInitTypeDef RCC_CRSInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+
+  __HAL_FLASH_SET_LATENCY(FLASH_LATENCY_1);
+
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+
+   if (0){
+
+      RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+      RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+      RCC_OscInitStruct.HSIState   = RCC_HSI_ON;
+      RCC_OscInitStruct.HSIDiv     = RCC_HSI_DIV1;
+      RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+
+      if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+      {
+
+        Error_Handler2(4);
+
+      }
+  }
+
+   {
+
+
+      RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+      RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48;
+      RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
+
+      if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+      {
+        Error_Handler2(3);
+
+      }
+
+  }
+
+
+
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSIUSB48;
+  RCC_ClkInitStruct.SYSCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  {
+    Error_Handler2(5);
+  }
+
+  /** Enable the CRS APB clock
+  */
+  __HAL_RCC_CRS_CLK_ENABLE();
+
+  /** Configures CRS
+  */
+  RCC_CRSInitStruct.Prescaler = RCC_CRS_SYNC_DIV1;
+  RCC_CRSInitStruct.Source = RCC_CRS_SYNC_SOURCE_USB;
+  RCC_CRSInitStruct.Polarity = RCC_CRS_SYNC_POLARITY_RISING;
+  RCC_CRSInitStruct.ReloadValue = __HAL_RCC_CRS_RELOADVALUE_CALCULATE(48000000,1000);
+  RCC_CRSInitStruct.ErrorLimitValue = 34;
+  RCC_CRSInitStruct.HSI48CalibrationValue = 32;
+
+  HAL_RCCEx_CRSConfig(&RCC_CRSInitStruct);
+
+
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
+  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_HSI48;
+  HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit);
+
+  LL_Init1msTick(48000000);
+  /* Update CMSIS variable (which can be updated also through SystemCoreClockUpdate function) */
+  LL_SetSystemCoreClock(48000000);
+
+}
+
 static inline void board_clock_init(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
@@ -675,9 +752,6 @@ static void SystemClockHSE_Config(void) {
   */
 void SystemClock_Config(void) {
 
-	SystemClockHSE_Config();
-	return;
-
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
@@ -692,7 +766,7 @@ void SystemClock_Config(void) {
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
-    Error_Handler();
+    Error_Handler2(1);
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
@@ -706,7 +780,7 @@ void SystemClock_Config(void) {
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
   {
-    Error_Handler();
+    Error_Handler2(2);
   }
 }
 
@@ -775,8 +849,22 @@ void Error_Handler(void){
   {
     /* Toggle LED1 for error */
     BSP_LED_Toggle(LED1);
-    HAL_Delay(100);
+    HAL_Delay(200);
     //printf("Error");
+  }
+
+}
+
+void Error_Handler2(int cnt){
+  while (1)
+  {
+    BSP_LED_Off(LED1);
+
+   for (int i = 0; i < cnt *2; i++){
+    BSP_LED_Toggle(LED1);
+    HAL_Delay(100);
+   }
+    HAL_Delay(1000);
   }
 
 }
@@ -1609,7 +1697,7 @@ void AdcGrpRegularOverrunError_Callback(void) {
 
 
 
-#if 0
+#if 1
 float Goertzel_coef(float freq, int samp_rate) {
   float coef = 2.0 * cos((2.0 * PI * freq) / samp_rate);
   return coef;
@@ -1623,11 +1711,10 @@ float Goertzel_mag(uint16_t samples[], int depth, float coef, int adc_midpoint) 
 		Q2 = Q1;
 		Q1 = Q0;
 	}
-	return (Q1 * Q1 + Q2 * Q2 - coef * Q1 * Q2);
-	//return sqrt(Q1 * Q1 + Q2 * Q2 - coef * Q1 * Q2);
+	return sqrt(Q1 * Q1 + Q2 * Q2 - coef * Q1 * Q2);
 
 }
-#else
+#endif
 
 int16_t Goertzel_coef_q15(float freq, int samp_rate)
 {
@@ -1637,7 +1724,7 @@ int16_t Goertzel_coef_q15(float freq, int samp_rate)
     return (int16_t)(c * 32768.0f);   // Q15
 }
 
-int32_t Goertzel_mag_fast_q15(const uint16_t *samples,
+int32_t Goertzel_mag_fast_q15(const int16_t *samples,
                               int depth,
                               int16_t coef,
                               int32_t adc_mid)
@@ -1657,7 +1744,7 @@ int32_t Goertzel_mag_fast_q15(const uint16_t *samples,
         q1 = q0;
     }
 
-#if 1
+#if 0
     int32_t mag = abs(q1)+abs(q2) ;
 #else
     // magnitude² (csak itt 64bit → OK)
@@ -1665,61 +1752,15 @@ int32_t Goertzel_mag_fast_q15(const uint16_t *samples,
           (int64_t)q1 * q1
         + (int64_t)q2 * q2
         - ((int64_t)coef * q1 >> 15) * q2;
+    mag = sqrt((double)mag);
+
 #endif
+
     if (mag < 0) mag = 0;
     if (mag > INT32_MAX) mag = INT32_MAX;
 
     return (int32_t)mag;
 }
-
-
-int32_t Goertzel_coef(float freq, int samp_rate)
-{
-    float w = (2.0f * (float)M_PI * freq) / (float)samp_rate;
-    float c = 2.0f * cosf(w);
-
-    return (int32_t)(c * 2147483648.0f); // Q31
-}
-
-#define GOERTZEL_MAG_SHIFT 15   // <<< EZT LEHET HANGOLNI
-
-int32_t Goertzel_mag(const uint16_t *samples,
-                            int depth,
-                            int32_t coef,
-                            int32_t adc_midpoint)
-{
-    int32_t Q0 = 0;
-    int32_t Q1 = 0;
-    int32_t Q2 = 0;
-
-    for (int n = 0; n < depth; n++) {
-        Q0 = (int32_t)(
-                ((int64_t)coef * Q1 >> 31)
-                - Q2
-                + ((int32_t)samples[n] - adc_midpoint)
-             );
-        Q2 = Q1;
-        Q1 = Q0;
-    }
-
-    // magnitude^2 (Q62)
-    int64_t mag64 =
-          (int64_t)Q1 * Q1
-        + (int64_t)Q2 * Q2
-        - ((int64_t)coef * Q1 >> 31) * Q2;
-
-    // skálázás int32-re
-    mag64 >>= GOERTZEL_MAG_SHIFT;
-
-    // szaturáció (biztonság)
-    if (mag64 > INT32_MAX) return INT32_MAX;
-    if (mag64 < 0)         return 0;
-
-    return (int32_t)mag64;
-}
-#endif
-
-
 
 
 
@@ -1852,6 +1893,121 @@ void parse_frame(uint8_t *frame) {
 }
 
 
+void cmd_agc_power(int range) {
+
+    //Uart2_printf("AGC - %d\r\n", range);
+
+    switch (range) {
+        case 0 : {
+           AGC1_high();
+           AGC2_high();
+           AGC3_high();
+           AGC4_high();
+        } break;
+        case 1 : {
+           AGC1_high();
+           AGC2_high();
+           AGC3_high();
+           AGC4_low();
+        } break;
+        case 2 : {
+           AGC1_high();
+           AGC2_high();
+           AGC3_low();
+           AGC4_low();
+        } break;
+        case 3 : {
+           AGC1_high();
+           AGC2_low();
+           AGC3_low();
+           AGC4_low();
+        } break;
+        case 4 : {
+           AGC1_low();
+           AGC2_low();
+           AGC3_low();
+           AGC4_low();
+        } break;
+        default : {
+        }
+    }
+}
+
+void AGC_HW_process(int range) {
+    static int gain = 0;
+
+    static int range_avg = 0;
+    static int delay = 0;
+    static int start = 1;
+
+    if (start){
+        start = 0;
+        range_avg = range;
+
+        if (GETBIT(agc,0) == 0) {
+            gain  = 4;
+        } else
+        if (GETBIT(agc,1) == 0) {
+            gain  = 3;
+        }  else
+        if (GETBIT(agc,2) == 0) {
+            gain  = 2;
+        }
+        else
+        if (GETBIT(agc,3) == 0) {
+            gain  = 1;
+        }
+    }
+    range_avg = range;
+    range_avg /=  2;
+
+    if (agc_disable == 1) {
+        delay = -59000;
+        agc_disable = 0;
+    }
+
+
+    if (++delay < 10000) return;
+
+    datetime_t dt;
+	uint64_t now  = get_unix_time_us();
+	unix_us_to_datetime(now, &dt);
+    if (dt.sec % 10 != 3) return;
+
+    delay = 0;
+
+     if (range_avg > 1500) {
+        if (gain > 0) gain --;
+     } else
+
+     if (range_avg <  1000) {
+        if (gain < 4) gain ++;
+     }
+
+    //Uart2_printf("AGC_process range %d, agc %d, ",range_avg,gain);
+
+    cmd_agc_power(gain);
+
+
+}
+
+void AGC_SW_process(int16_t* buffer, int depth , int range , int avg) {
+
+    uint8_t shift = 0;
+    if (range > 0) {
+        if (range < 256)       shift = 4; // ~16x erősítés
+        else if (range < 512)  shift = 3; // ~8x erősítés
+        else if (range < 1024) shift = 2; // ~4x erősítés
+        else if (range < 2048) shift = 1; // ~2x erősítés
+        else                   shift = 0; // ~1x erősítés
+    }
+
+    for(int i = 0; i < depth; i++) {
+        buffer[i] = (int16_t)((buffer[i] - avg) << shift);
+    }
+
+}
+
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
@@ -1871,8 +2027,8 @@ void loop(int16_t* buffer, int depth) {
 
 
 
-  min = 4097;
-  max = -1;
+  min = INT_MAX;
+  max = INT_MIN;
   signal = FLT_MIN;
 
   for(int i = 0; i < depth; i++) {
@@ -1880,14 +2036,16 @@ void loop(int16_t* buffer, int depth) {
 	  if (max <(int) buffer[i]) max = (int) buffer[i];
   }
 
- int32_t avg = (max - min) / 2;
-#if 0
-  float m1 = Goertzel_mag(buffer, depth, coef1,avg);
-  float m2 = Goertzel_mag(buffer, depth, coef2, avg);
-#else
-  int32_t m1 = Goertzel_mag_fast_q15((uint16_t *)buffer, depth,(int16_t) coef1, avg);
-  int32_t m2 = Goertzel_mag_fast_q15((uint16_t *)buffer, depth,(int16_t) coef2, avg);
-#endif
+  int32_t avg = (max + min) / 2;
+  int32_t range = max - min;
+
+  AGC_HW_process(range);
+  AGC_SW_process(buffer,depth,range,avg);
+  avg = 0;
+
+  int32_t m1 = Goertzel_mag_fast_q15((int16_t *)buffer, depth,(int16_t) coef1, avg);
+  int32_t m2 = Goertzel_mag_fast_q15((int16_t *)buffer, depth,(int16_t) coef2, avg);
+
 
   max_snr1 = MAX((int)m1,max_snr1);
   max_snr2 = MAX((int)m2,max_snr2);
@@ -1896,10 +2054,6 @@ void loop(int16_t* buffer, int depth) {
 
   uint16_t bit = (m1 > m2) ? 1 : 0;
 
-
- // if (bit ==0) {
-//	  Uart2_printf("%d   %d/%d \r\n",(int) (m2/m1), (int)m1,(int)m2);
-//  }
 
 
   {
@@ -1927,15 +2081,6 @@ void loop(int16_t* buffer, int depth) {
 
 
   sq_push(&q_fsk,(int16_t *)&bit,1);
-
-//  {
-//  static int send_idx = 0;
-//  if (++send_idx %5 == 0){
-//	  printf("\r\nbit :");
-//  }
-//  Uart2_printf("[%d],",bit);
-//  }
-
 
   if (sq_size(&q_fsk) >= 5){
 	  uint16_t bits[5] = {0};
@@ -1983,14 +2128,6 @@ void loop(int16_t* buffer, int depth) {
   }
   send = 0;
 
-//  {
-////  static int send_idx = 0;
-////  if (++send_idx %32 == 0){
-////	  printf("\r\n");
-////  }
-//  printf("[%d],",fsk_bit);
-//  }
-
   switch (state) {
 
     case 0: // start
@@ -2001,13 +2138,13 @@ void loop(int16_t* buffer, int depth) {
       }
       break;
 
-    case 1: // data
+    case 1: { // data
       if (bit_to_byte(fsk_bit, &byte)){
           state = 2;
-        }
-      break;
+      }
+      } break;
 
-    case 2: // parity
+    case 2:  {// parity
       parity = __builtin_parity(byte);
       if (parity == fsk_bit){
           state = 3;
@@ -2015,37 +2152,11 @@ void loop(int16_t* buffer, int depth) {
       else {
         state = 0;
       }
-      break;
+      }break;
 
-    case 3: // stop
-
-    {
-
-
-		   //printf("0x%X, -%d-\r\n",byte,fsk_bit );
-    }
-
-
+    case 3: { // stop
 
       if (fsk_bit == 1) {
-
-//    	  float snr_db;
-//    	  {
-//
-//
-//    		  float signal = MAX(m1, m2);
-//    		  float noise  = MIN(m1, m2) + 1e-9; // elkerülni a 0-t
-//
-//    		  snr_db = 10.0f * log10f(signal / noise);
-//    	  }
-
-//    	  static int send_idx = 0;
-//			  if (++send_idx %16 == 0){
-//				  printf("\r\n");
-//			  }
-//		   printf("0x%X [%f]\r\n",byte, snr_db );
-//    	  printf("0x%X,",byte);
-
           uint16_t data = byte;
     	  sq_push(&q_byte,(int16_t *)&data,1);
 
@@ -2071,13 +2182,6 @@ void loop(int16_t* buffer, int depth) {
 				   break;
 			   }
     	  }
-
-
-
-
-
-
-
       } else {
  		 start 		= 0;
  		 send  		= 0;
@@ -2088,7 +2192,11 @@ void loop(int16_t* buffer, int depth) {
  		 parity 	= 0;
       }
       state = 0;
-      break;
+     } break;
+
+     default :{
+     }
+
   }
 
 
@@ -2100,7 +2208,7 @@ void loop(int16_t* buffer, int depth) {
 		 state      = 0;
 		 byte   = 0;
 		 parity = 0;
-		 //printf("\r\n--end----\r\n");
+
 
 	 }
 
@@ -2138,8 +2246,8 @@ void loop2(int16_t *buffer, int depth)
 
     /* ================= SIGNAL RANGE ================= */
     /// int32_t
-    min = 0xFFFFF;
-    max = -1;
+    min = INT_MAX;
+    max = INT_MIN;
 
     for(int i=0;i<depth;i++)
     {
@@ -2151,12 +2259,15 @@ void loop2(int16_t *buffer, int depth)
 
     int32_t avg = (min + max) >> 1;
 
+    for(int i=0;i<depth;i++)
+        buffer[i] -= avg;
+
     /* =================================================
        GOERTZEL
        ================================================= */
 
-    int32_t m1 = Goertzel_mag_fast_q15((uint16_t*)buffer, depth, (int16_t)coef1, avg);
-    int32_t m2 = Goertzel_mag_fast_q15((uint16_t*)buffer, depth, (int16_t)coef2, avg);
+    int32_t m1 = Goertzel_mag_fast_q15((int16_t*)buffer, depth, (int16_t)coef1, avg);
+    int32_t m2 = Goertzel_mag_fast_q15((int16_t*)buffer, depth, (int16_t)coef2, avg);
 
 
 #if 1
@@ -2197,15 +2308,19 @@ void loop2(int16_t *buffer, int depth)
 
     /* ================= MAJORITY FILTER ================= */
 
-    bit_hist = (bit_hist << 1) | raw_bit;
-
-    uint8_t ones = __builtin_popcount(bit_hist & 0x07);
-
-    uint8_t fsk_bit = (ones >= 2);
+    bit_hist = ((bit_hist << 1) | raw_bit) & 0x07;
+    uint8_t fsk_bit = (__builtin_popcount(bit_hist) >= 2);
 
     /* =================================================
        UART DECODER
        ================================================= */
+
+    static uint8_t bit_clk = 0;
+
+    if(++bit_clk < 5)
+    return;
+
+    bit_clk = 0;
 
     switch(uart_state)
     {
@@ -2227,10 +2342,13 @@ void loop2(int16_t *buffer, int depth)
 
         case 1:
 
-            byte >>= 1;
+            //byte >>= 1;
 
-            if(fsk_bit)
-                byte |= 0x80;
+            if(fsk_bit){
+                byte |= (fsk_bit << bit_cnt);
+                bit_cnt++;
+            }
+                //byte |= 0x80;
 
             bit_cnt++;
 

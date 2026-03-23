@@ -77,7 +77,7 @@ __IO uint8_t ubDmaTransferCnt= 0; /* Variable set into DMA interruption callback
 
 void ADC_Init(void) {
 
-	uint32_t tmp_index;
+  uint32_t tmp_index;
 /* Initialize ADC group regular data buffer values */
   for (tmp_index = 0; tmp_index < ADC_CONVERTED_DATA_BUFFER_SIZE; tmp_index++)
   {
@@ -247,7 +247,7 @@ void MX_ADC1_Init(void) {
   LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
   LL_ADC_REG_SetSequencerScanDirection(ADC1, LL_ADC_REG_SEQ_SCAN_DIR_FORWARD);
 #warning ADC oversample
-#if 1
+#if 0
   LL_ADC_SetOverSamplingScope(ADC1, LL_ADC_OVS_DISABLE);
 #else
   LL_ADC_SetOverSamplingScope(ADC1, LL_ADC_OVS_GRP_REGULAR_CONTINUED);
@@ -280,7 +280,7 @@ void MX_ADC1_Init(void) {
    LL_ADC_ClearFlag_CCRDY(ADC1);
   LL_ADC_REG_SetTriggerEdge(ADC1, LL_ADC_REG_TRIG_EXT_RISING);
 #warning ADC oversample
-#if 1
+#if 0
   LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_COMMON_1, LL_ADC_SAMPLINGTIME_79CYCLES_5);
 #else
   LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_COMMON_1, LL_ADC_SAMPLINGTIME_7CYCLES_5);
