@@ -6,8 +6,8 @@
 	(paper "A4")
 	(title_block
 		(title "UNO HGA22 Receiver")
-		(date "2025-12-19")
-		(rev "V1")
+		(date "2026-03-13")
+		(rev "V1.1")
 		(company "OSHW")
 	)
 	(lib_symbols
@@ -5448,7 +5448,7 @@
 	)
 	(symbol
 		(lib_id "Device:R")
-		(at 102.87 77.47 90)
+		(at 110.49 77.47 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -5457,15 +5457,15 @@
 		(fields_autoplaced yes)
 		(uuid "26d8a80d-e453-4bf8-b21e-93c89c444b2b")
 		(property "Reference" "R4"
-			(at 102.87 71.12 90)
+			(at 110.49 71.12 90)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 			)
 		)
-		(property "Value" "100/1%"
-			(at 102.87 73.66 90)
+		(property "Value" "1k/1%"
+			(at 110.49 73.66 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5473,7 +5473,7 @@
 			)
 		)
 		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
-			(at 102.87 79.248 90)
+			(at 110.49 79.248 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5482,7 +5482,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 102.87 77.47 0)
+			(at 110.49 77.47 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5491,7 +5491,7 @@
 			)
 		)
 		(property "Description" "Resistor"
-			(at 102.87 77.47 0)
+			(at 110.49 77.47 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5798,7 +5798,7 @@
 				)
 			)
 		)
-		(property "Value" "100/1%"
+		(property "Value" "10k/1%"
 			(at 198.12 46.99 90)
 			(effects
 				(font
@@ -6733,7 +6733,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "59f0d925-ac0f-43ef-a050-ecb25ada6884")
-		(property "Reference" "R8"
+		(property "Reference" "R7"
 			(at 201.93 109.2199 0)
 			(effects
 				(font
@@ -6742,7 +6742,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "330k/1%"
+		(property "Value" "1M/1%"
 			(at 201.93 111.7599 0)
 			(effects
 				(font
@@ -6787,7 +6787,7 @@
 		(instances
 			(project "STM32_HGA22_V1"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55"
-					(reference "R8")
+					(reference "R7")
 					(unit 1)
 				)
 			)
@@ -6945,7 +6945,7 @@
 				)
 			)
 		)
-		(property "Value" "100/1%"
+		(property "Value" "100k/1%"
 			(at 198.12 36.83 90)
 			(effects
 				(font
@@ -7259,7 +7259,7 @@
 	)
 	(symbol
 		(lib_id "Device:C")
-		(at 110.49 77.47 90)
+		(at 102.87 77.47 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -7268,7 +7268,7 @@
 		(fields_autoplaced yes)
 		(uuid "6bba4aa0-10d5-4ffc-abd3-926a7d08ee05")
 		(property "Reference" "C9"
-			(at 110.49 69.85 90)
+			(at 102.87 69.85 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7276,7 +7276,7 @@
 			)
 		)
 		(property "Value" "100n"
-			(at 110.49 72.39 90)
+			(at 102.87 72.39 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7284,7 +7284,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
-			(at 114.3 76.5048 0)
+			(at 106.68 76.5048 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7293,7 +7293,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 110.49 77.47 0)
+			(at 102.87 77.47 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7302,7 +7302,7 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor"
-			(at 110.49 77.47 0)
+			(at 102.87 77.47 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7476,7 +7476,7 @@
 				)
 			)
 		)
-		(property "Value" "1M/1%"
+		(property "Value" "30k/1%"
 			(at 129.54 85.09 90)
 			(effects
 				(font
@@ -7862,22 +7862,23 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "793bcf0f-87fc-46cc-8673-ac97f36e01e9")
 		(property "Reference" "U1"
-			(at 140.97 97.7198 0)
+			(at 132.08 96.52 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
+				(justify left)
 			)
 		)
-		(property "Value" "LM321LV"
-			(at 140.97 100.2598 0)
+		(property "Value" "MCP6476U"
+			(at 132.08 99.06 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
+				(justify left)
 			)
 		)
 		(property "Footprint" "Package_TO_SOT_SMD:SOT-23-5"
@@ -7889,7 +7890,7 @@
 				(hide yes)
 			)
 		)
-		(property "Datasheet" "http://www.ti.com/lit/ds/symlink/lm321.pdf"
+		(property "Datasheet" "https://ww1.microchip.com/downloads/aemDocuments/documents/APID/ProductDocuments/DataSheets/MCP6476-6R-6U-7-9-Data-Sheet-20006419B.pdf"
 			(at 130.81 104.14 0)
 			(effects
 				(font
@@ -8541,7 +8542,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "90f98603-050f-46cd-af8e-e5eb0efa2001")
-		(property "Reference" "R7"
+		(property "Reference" "R8"
 			(at 201.93 96.5199 0)
 			(effects
 				(font
@@ -8595,7 +8596,7 @@
 		(instances
 			(project "STM32_HGA22_V1"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55"
-					(reference "R7")
+					(reference "R8")
 					(unit 1)
 				)
 			)
@@ -8687,7 +8688,7 @@
 				)
 			)
 		)
-		(property "Value" "100k/1%"
+		(property "Value" "1M/1%"
 			(at 224.79 82.55 90)
 			(effects
 				(font
@@ -9900,7 +9901,7 @@
 				)
 			)
 		)
-		(property "Value" "100/1%"
+		(property "Value" "1k/1%"
 			(at 198.12 58.42 90)
 			(effects
 				(font
