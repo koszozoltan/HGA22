@@ -20,6 +20,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "util.h"
 #include <string.h>
 #include "queue.h"
 #include "math.h"
@@ -28,6 +29,11 @@
 #include "arm_math.h"
 #include "date.h"
 #include "adc.h"
+#include "iq.h"
+#include "goertzel.h"
+#include "decoder.h"
+
+
 
 /* Private includes ----------------------------------------------------------*/
 /* Private typedef -----------------------------------------------------------*/
@@ -59,12 +65,13 @@ int send_array = 0;
 int send_snr   = 0;
 int search = 0;
 
-int max_snr1 =0;
-int max_snr2 =0;
-int min_snr1 =0;
-int min_snr2 =0;
+
 
 int agc_disable = 0;
+int min = 65536;
+int max = -1;
+
+
 
 
 volatile uint64_t unix_us = 0;// += 1000ULL;
@@ -105,97 +112,26 @@ uint64_t datetime_to_unix_us(const datetime_t *dt, uint32_t usec);
 extern void udp_server_init(void);
 extern void ShellTask(void);
 
+int Get_HW_Agc(void);
+
 
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 
-#define SAMPLE_RATE TIMER_FREQUENCY_HZ
-
-#define DEPTH         (ADC_CONVERTED_DATA_BUFFER_SIZE*4)        // 4 ms
-#define OFFSET_BITS   5
-#define BITBUF_SIZE   16
-
-
-
-#if 1
-#define FREQ_ONE      (1730)
-#define FREQ_TWO      (FREQ_ONE + 340)
-#define TIMER3_FREQ   (135600-2000)
-#endif
-
-#if 0
-#warning DCF49
-//#define FREQ_ONE      (1730)
-//#define FREQ_TWO      (FREQ_ONE + 340)
-
-#define FREQ_ONE      (1555)
-#define FREQ_TWO      (1895)
-#define TIMER3_FREQ   (129100-2000)
-
-
-#warning DCF39
-#define FREQ_ONE      (1720)
-#define FREQ_TWO      (FREQ_ONE+340)
-#define TIMER3_FREQ   (139000-2000)
-
-#endif
-
-
-#define NOISE_FLOOR   5000
-#ifndef PI
-    # define PI           3.14159265358979323846  /* pi */
-#endif
-
-float coef1;
-float coef2;
-
-int min = 65536;
-int max = -1;
 
 
 
 
 
-uint8_t 	bit_to_byte(uint8_t bit, uint8_t *out);
-uint32_t 	getBits(const uint8_t *data, uint32_t pos, uint32_t len);
-void 		parse_frame(uint8_t *frame);
-#if 1
-float 		Goertzel_coef(float freq, int samp_rate);
-float 		Goertzel_mag(uint16_t samples[], int depth, float coef, int adc_midpoint);
-#else
-int32_t Goertzel_coef(float freq, int samp_rate);
-int32_t Goertzel_mag(const uint16_t *samples,
-                            int depth,
-                            int32_t coef,
-                            int32_t adc_midpoint);
-
-#endif
-int16_t Goertzel_coef_q15(float freq, int samp_rate);
-int32_t Goertzel_mag_fast_q15(const int16_t *samples,
-                              int depth,
-                              int16_t coef,
-                              int32_t adc_mid);
 
 
 
 
-void	 	loop(int16_t *buffer, int depth);
-void	 	loop2(int16_t *buffer, int depth);
 
 
 uint16_t signal_buffer[128];
 stream_q_t q_signal;
 
-uint16_t byte_buffer[32]; //
-stream_q_t q_byte;
-
-
-uint16_t fsk_buffer[8];
-stream_q_t q_fsk;
-#if 0
-uint16_t voice_buffer[8192];
-stream_q_t q_voice;
-#endif
 
 /* Private user code ---------------------------------------------------------*/
 
@@ -213,140 +149,15 @@ size_t board_get_unique_id(uint8_t id[], size_t max_len) {
   return len;
 }
 
-#define FFT_SIZE 32  // A példád alapján 32
-
-// A bemenetnek és a kimenetnek is 2*FFT_SIZE méretűnek kell lennie!
 
 
-void run_fft_example(uint16_t samples[], int depth) {
-#if 0
-
-    static q15_t testInput_q15[FFT_SIZE * 2];
-    static q15_t testOutput_q15[FFT_SIZE * 2];
-    // Statikus struktúra használata (vagy arm_rfft_init_q15 hívása egyszer az elején)
-    extern const arm_rfft_instance_q15 arm_rfft_sR_q15_len32;
-    const arm_rfft_instance_q15 *S = &arm_rfft_sR_q15_len32;
-    arm_status status = ARM_MATH_SUCCESS;
-
-    if (depth != FFT_SIZE) return;
-
-    // 1. Adatok másolása és konvertálása
-    // Fontos: a testInput_q15 többi részét nullázni kell, ha az RFFT belsőleg használja
-    for(int i = 0; i < FFT_SIZE; i++) {
-        // Ha a samples[] 0-4095 (ADC), érdemes DC eltolást kivonni vagy skálázni
-        testInput_q15[i] = (q15_t)(samples[i] >> 1); // Skálázás a túlcsordulás ellen
-    }
-    // A puffer második felét érdemes nullázni
-    for(int i = FFT_SIZE; i < FFT_SIZE * 2; i++) {
-        testInput_q15[i] = 0;
-    }
-
-    // 2. RFFT végrehajtása
-    // Bemenet: testInput_q15 (valós adatok)
-    // Kimenet: testOutput_q15 (komplex adatok: R0, I0, R1, I1...)
-    arm_rfft_q15(S, testInput_q15, testOutput_q15);
-
-    // 3. Magnitúdó számítása
-    // A kimenet komplex, ebből csinálunk valós spektrumot.
-    // Az eredmény az első FFT_SIZE elembe kerül.
-    arm_cmplx_mag_q15(testOutput_q15, testOutput_q15, FFT_SIZE);
-
-    // 4. Eredmények kiírása
-    // Real FFT esetén a spektrum szimmetrikus, csak az első fele (FFT_SIZE/2) hasznos információ!
-    for(int i = 0; i < FFT_SIZE / 2; i++){
-        Uart2_printf("%d;", testOutput_q15[i]);
-    }
-    Uart2_printf("\r\n");
-
-#else
-#warning FFT is disabled
-#endif
-}
 
 
-int search_freq ( uint16_t samples[], int depth){
-#if 0
-	run_fft_example ( samples, depth);
-	return 1;
-#endif
 
-#ifndef ITEMNUM
-#define ITEMNUM(x)          (sizeof(x) / sizeof((x)[0]))
-#endif // ITEMNUM
-
-     float max = -1;
-     int max_id = 0;
-     float TONE_ONE_MAG;
-     static int first = 0;
-
-     int minimum = INT_MAX;
-     int maximum = INT_MIN;
-
-     for(int i = 0; i < depth; i++) {
-    	  if (minimum >(int) samples[i]) minimum = (int) samples[i];
-    	  if (maximum <(int) samples[i]) maximum = (int) samples[i];
-     }
-     int avg = (maximum+minimum)/2;
-     if (first == 0) {
-        first = 1;
-         Uart2_printf("FREQ:");
-         for (int i = 1700 ; i < 2100 ; i=i+10){
-
-            Uart2_printf("%d;", i);
-
-         }
-          Uart2_printf("\r\n");
-     }
-
-     float sum = 0;
-     int   avg_cnt = 0;
-     float p1 = 0;
-     float p2 = 0;
-     int   avg_first = 1;
-
-     for (int i = 1700 ; i < 2100 ; i=i+10){
-
-    	float coef =  Goertzel_coef(i,  SAMPLE_RATE);
-
-
-        TONE_ONE_MAG = Goertzel_mag(samples,depth,coef,avg);
-        if (TONE_ONE_MAG > max) {
-                max = TONE_ONE_MAG;
-                max_id = i;
-        }
-        if ((i ==FREQ_ONE) || (i ==FREQ_TWO)){
-//            Uart2_printf("[%d];", (int)TONE_ONE_MAG / 100);
-        }else {
-//            Uart2_printf("%d;", (int)TONE_ONE_MAG  / 100);
-        }
-        if (i == FREQ_ONE) {
-            p1 = TONE_ONE_MAG;
-        }
-        if (i == FREQ_TWO) {
-            p2 = TONE_ONE_MAG;
-        }
-        if (avg_first){
-            avg_first = 0;
-            sum += TONE_ONE_MAG;
-        }
-
-        sum += TONE_ONE_MAG;
-        sum = sum /2;
-
-     }
-     {
-
-      float snr1 = 100 * log10 ( p1 / sum );
-      float snr2 = 100 * log10 ( p2 / sum );
-       Uart2_printf("%d;%d",(int)snr1,(int)snr2 );
-     }
-      Uart2_printf("\r\n");
-
-     //Uart2_printf("MAX FEQ %d\r\n",max_id);
-    return max_id;
-}
 extern void loop_tinyusb (void);
 extern int main_tinyusb(void);
+
+//void init_demods(void);
 
 
 /**
@@ -358,6 +169,7 @@ int main(void)
 
   HAL_Init();
   BSP_LED_Init(LED1);
+  BSP_LED_Init(LED2);
   //SystemClockHSIUSB48_Config() ;
   board_clock_init();
 
@@ -365,8 +177,8 @@ int main(void)
 
 
   sq_init(&q_signal, (int16_t*)signal_buffer, 128);
-  sq_init(&q_byte,   (int16_t*)byte_buffer, 32);
-  sq_init(&q_fsk,    (int16_t*)fsk_buffer, 8);
+ // sq_init(&q_byte,   (int16_t*)byte_buffer, 32);
+ // sq_init(&q_fsk,    (int16_t*)fsk_buffer, 8);
   #if 0
   sq_init(&q_voice,voice_buffer,8192);
   #endif
@@ -382,13 +194,9 @@ int main(void)
   ADC_Init();
 
 
-#if 0
-  coef1 = Goertzel_coef(FREQ_ONE,SAMPLE_RATE);
-  coef2 = Goertzel_coef(FREQ_TWO,SAMPLE_RATE);
-#else
-  coef1 =  Goertzel_coef_q15(FREQ_ONE,SAMPLE_RATE);
-  coef2 =  Goertzel_coef_q15(FREQ_TWO,SAMPLE_RATE);
-#endif
+
+
+
   Uart2_printf("\r\nHGA22 RECEIVER RNDIS V1.0>\r\n");
   Uart2_printf("%s %s\r\n", BUILD_DATE);
 
@@ -438,16 +246,15 @@ int main(void)
 
 #endif
 
+init_demods();
+
 
   while(1){
-#if 1
+
 	  ShellTask();
-#else
-#warning ShellTask
-#endif
-#if 1
+
 	  loop_tinyusb();
-#endif
+
 
 	  if(ubDmaTransferStatus == 1) {
 		  //LED_On();
@@ -551,7 +358,6 @@ static void Timer3Init(void) {
  /* TIM3CLK = SystemCoreClock / (APB prescaler & multiplier)               */
  TimOutClock = SystemCoreClock/1;
  timxPrescaler = __LL_TIM_CALC_PSC (SystemCoreClock, 80000000);
- //timxPeriod = __LL_TIM_CALC_ARR    (TimOutClock,     timxPrescaler,   (133600));
  timxPeriod = __LL_TIM_CALC_ARR    (TimOutClock,     timxPrescaler,   TIMER3_FREQ);
 
  /* Initialize all configured peripherals */
@@ -593,21 +399,7 @@ static void SystemClockHSIUSB48_Config(void)
   * in the RCC_OscInitTypeDef structure.
   */
 
-   if (0){
 
-      RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-      RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-      RCC_OscInitStruct.HSIState   = RCC_HSI_ON;
-      RCC_OscInitStruct.HSIDiv     = RCC_HSI_DIV1;
-      RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-
-      if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-      {
-
-        Error_Handler2(4);
-
-      }
-  }
 
    {
 
@@ -871,305 +663,6 @@ void Error_Handler2(int cnt){
 
 
 
-//void ADC_Init(void) {
-//
-//	uint32_t tmp_index;
-///* Initialize ADC group regular data buffer values */
-//  for (tmp_index = 0; tmp_index < ADC_CONVERTED_DATA_BUFFER_SIZE; tmp_index++)
-//  {
-//    uhADCxConvertedData[tmp_index] = VAR_CONVERTED_DATA_INIT_VALUE;
-//  }
-//
-//  /* USER CODE END 1 */
-//
-//  /* MCU Configuration--------------------------------------------------------*/
-//
-//  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-//  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_SYSCFG);
-//  LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_PWR);
-//
-//  /* SysTick_IRQn interrupt configuration */
-//  NVIC_SetPriority(SysTick_IRQn, 3);
-//
-//
-//  /* Initialize all configured peripherals */
-//   //MX_GPIO_Init();
-//   MX_DMA_Init();
-//   MX_ADC1_Init();
-//   MX_TIM1_Init();
-//   /* USER CODE BEGIN 2 */
-//
-//   /* Activate ADC */
-//   /* Perform ADC activation procedure to make it ready to convert. */
-//   ADC_Activate();
-//
-//   /* Start ADC group regular conversion */
-//   /* Note: ADC conversion will effectively start at timer trigger event */
-//   /* Note: Hardware constraint (refer to description of the functions         */
-//   /*       below):                                                            */
-//   /*       On this STM32 series, setting of this feature is conditioned to    */
-//   /*       ADC state:                                                         */
-//   /*       ADC must be enabled without conversion on going on group regular,  */
-//   /*       without ADC disable command on going.                              */
-//   /* Note: In this example, all these checks are not necessary but are        */
-//   /*       implemented anyway to show the best practice usages                */
-//   /*       corresponding to reference manual procedure.                       */
-//   /*       Software can be optimized by removing some of these checks, if     */
-//   /*       they are not relevant considering previous settings and actions    */
-//   /*       in user application.                                               */
-//   if ((LL_ADC_IsEnabled(ADC1) == 1)               &&
-//       (LL_ADC_IsDisableOngoing(ADC1) == 0)        &&
-//       (LL_ADC_REG_IsConversionOngoing(ADC1) == 0)   )
-//   {
-//     LL_ADC_REG_StartConversion(ADC1);
-//   }
-//   else
-//   {
-//     /* Error: ADC conversion start could not be performed */
-//     Error_Handler();
-//   }
-//
-//   /* Start time base */
-//   LL_TIM_EnableCounter(TIM1);
-//
-//
-//}
-//
-//
-///**
-//  * @brief ADC1 Initialization Function
-//  * @param None
-//  * @retval None
-//  */
-//static void MX_ADC1_Init(void) {
-//
-//  /* USER CODE BEGIN ADC1_Init 0 */
-//
-//  /* USER CODE END ADC1_Init 0 */
-//
-//  LL_ADC_InitTypeDef ADC_InitStruct = {0};
-//  LL_ADC_REG_InitTypeDef ADC_REG_InitStruct = {0};
-//
-//  LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
-//
-//  LL_RCC_SetADCClockSource(LL_RCC_ADC_CLKSOURCE_SYSCLK);
-//
-//  /* Peripheral clock enable */
-//  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC);
-//
-//  LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
-//  /**ADC1 GPIO Configuration
-//  PA4   ------> ADC1_IN4
-//  */
-//  GPIO_InitStruct.Pin = LL_GPIO_PIN_0;
-//  GPIO_InitStruct.Mode = LL_GPIO_MODE_ANALOG;
-//  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-//  LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-//
-//  /* ADC1 DMA Init */
-//
-//  /* ADC1 Init */
-//  LL_DMA_SetPeriphRequest(DMA1, LL_DMA_CHANNEL_1, LL_DMAMUX_REQ_ADC1);
-//
-//  LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_1, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-//
-//  LL_DMA_SetChannelPriorityLevel(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PRIORITY_LOW);
-//
-//  LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MODE_CIRCULAR);
-//
-//  LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PERIPH_NOINCREMENT);
-//
-//  LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MEMORY_INCREMENT);
-//
-//  LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PDATAALIGN_HALFWORD);
-//
-//  LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_HALFWORD);
-//
-//  /* ADC1 interrupt Init */
-//  NVIC_SetPriority(ADC1_IRQn, 0);
-//  NVIC_EnableIRQ(ADC1_IRQn);
-//
-//  /* USER CODE BEGIN ADC1_Init 1 */
-//  /* Set DMA transfer addresses of source and destination */
-//  LL_DMA_ConfigAddresses(DMA1,
-//                         LL_DMA_CHANNEL_1,
-//                         LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA),
-//                         (uint32_t)&uhADCxConvertedData,
-//                         LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-//
-//  /* Set DMA transfer size */
-//  LL_DMA_SetDataLength(DMA1,
-//                       LL_DMA_CHANNEL_1,
-//                       ADC_CONVERTED_DATA_BUFFER_SIZE);
-//
-//  /* Enable DMA transfer interruption: transfer complete */
-//  LL_DMA_EnableIT_TC(DMA1,
-//                     LL_DMA_CHANNEL_1);
-//
-//  /* Enable DMA transfer interruption: half transfer */
-//  LL_DMA_EnableIT_HT(DMA1,
-//                     LL_DMA_CHANNEL_1);
-//
-//  /* Enable DMA transfer interruption: transfer error */
-//  LL_DMA_EnableIT_TE(DMA1,
-//                     LL_DMA_CHANNEL_1);
-//
-//  /* Enable the DMA transfer */
-//  LL_DMA_EnableChannel(DMA1,
-//                       LL_DMA_CHANNEL_1);
-//  /* USER CODE END ADC1_Init 1 */
-//
-//  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-//  */
-//
-//   #define ADC_CHANNEL_CONF_RDY_TIMEOUT_MS ( 1U)
-//   #if (USE_TIMEOUT == 1)
-//   uint32_t Timeout ; /* Variable used for Timeout management */
-//   #endif /* USE_TIMEOUT */
-//
-//  ADC_InitStruct.Clock = LL_ADC_CLOCK_SYNC_PCLK_DIV4;
-//
-//  ADC_InitStruct.Resolution = LL_ADC_RESOLUTION_12B;
-//  ADC_InitStruct.DataAlignment = LL_ADC_DATA_ALIGN_RIGHT;
-//  ADC_InitStruct.LowPowerMode = LL_ADC_LP_MODE_NONE;
-//  LL_ADC_Init(ADC1, &ADC_InitStruct);
-//  LL_ADC_REG_SetSequencerConfigurable(ADC1, LL_ADC_REG_SEQ_FIXED);
-//  ADC_REG_InitStruct.TriggerSource = LL_ADC_REG_TRIG_EXT_TIM1_TRGO2;
-//  ADC_REG_InitStruct.SequencerLength = LL_ADC_REG_SEQ_SCAN_DISABLE;
-//  ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
-//  ADC_REG_InitStruct.ContinuousMode = LL_ADC_REG_CONV_SINGLE;
-//  ADC_REG_InitStruct.DMATransfer = LL_ADC_REG_DMA_TRANSFER_UNLIMITED;
-//  ADC_REG_InitStruct.Overrun = LL_ADC_REG_OVR_DATA_OVERWRITTEN;
-//  LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
-//  LL_ADC_REG_SetSequencerScanDirection(ADC1, LL_ADC_REG_SEQ_SCAN_DIR_FORWARD);
-//#warning !!!
-//#if 1
-//  LL_ADC_SetOverSamplingScope(ADC1, LL_ADC_OVS_DISABLE);
-//#else
-//  LL_ADC_SetOverSamplingScope(ADC1, LL_ADC_OVS_GRP_REGULAR_CONTINUED);
-//   LL_ADC_ConfigOverSamplingRatioShift(ADC1, LL_ADC_OVS_RATIO_32, LL_ADC_OVS_SHIFT_RIGHT_5);
-//   LL_ADC_SetOverSamplingDiscont(ADC1, LL_ADC_OVS_REG_CONT);
-//#endif
-//
-//
-//  LL_ADC_SetTriggerFrequencyMode(ADC1, LL_ADC_CLOCK_FREQ_MODE_HIGH);
-//  LL_ADC_REG_SetSequencerChAdd(ADC1, LL_ADC_CHANNEL_0);
-//
-//   /* Poll for ADC channel configuration ready */
-//   #if (USE_TIMEOUT == 1)
-//   Timeout = ADC_CHANNEL_CONF_RDY_TIMEOUT_MS;
-//   #endif /* USE_TIMEOUT */
-//   while (LL_ADC_IsActiveFlag_CCRDY(ADC1) == 0)
-//     {
-//   #if (USE_TIMEOUT == 1)
-//   /* Check Systick counter flag to decrement the time-out value */
-//   if (LL_SYSTICK_IsActiveCounterFlag())
-//     {
-//   if(Timeout-- == 0)
-//         {
-//   Error_Handler();
-//         }
-//     }
-//   #endif /* USE_TIMEOUT */
-//     }
-//   /* Clear flag ADC channel configuration ready */
-//   LL_ADC_ClearFlag_CCRDY(ADC1);
-//  LL_ADC_REG_SetTriggerEdge(ADC1, LL_ADC_REG_TRIG_EXT_RISING);
-//#warning !!!!
-//#if 1
-//  LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_COMMON_1, LL_ADC_SAMPLINGTIME_79CYCLES_5);
-//#else
-//  LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_COMMON_1, LL_ADC_SAMPLINGTIME_7CYCLES_5);
-//#endif
-//
-//  LL_ADC_DisableIT_EOC(ADC1);
-//  LL_ADC_DisableIT_EOS(ADC1);
-//
-//   /* Enable ADC internal voltage regulator */
-//   LL_ADC_EnableInternalRegulator(ADC1);
-//   /* Delay for ADC internal voltage regulator stabilization. */
-//   /* Compute number of CPU cycles to wait for, from delay in us. */
-//   /* Note: Variable divided by 2 to compensate partially */
-//   /* CPU processing cycles (depends on compilation optimization). */
-//   /* Note: If system core clock frequency is below 200kHz, wait time */
-//   /* is only a few CPU processing cycles. */
-//   uint32_t wait_loop_index;
-//   wait_loop_index = ((LL_ADC_DELAY_INTERNAL_REGUL_STAB_US * (SystemCoreClock / (100000 * 2))) / 10);
-//   while(wait_loop_index != 0)
-//     {
-//   wait_loop_index--;
-//     }
-//  /* USER CODE BEGIN ADC1_Init 2 */
-//
-//  /* Configuration of ADC interruptions */
-//  /* Enable interruption ADC group regular overrun */
-//  LL_ADC_EnableIT_OVR(ADC1);
-//
-//  /* USER CODE END ADC1_Init 2 */
-//
-//}
-//
-///**
-//  * @brief TIM1 Initialization Function
-//  * @param None
-//  * @retval None
-//  */
-//static void MX_TIM1_Init(void) {
-//
-//  /* USER CODE BEGIN TIM1_Init 0 */
-//  uint32_t tim_prescaler;
-//  uint32_t tim_period;
-//  /* USER CODE END TIM1_Init 0 */
-//
-//  LL_TIM_InitTypeDef TIM_InitStruct = {0};
-//
-//  /* Peripheral clock enable */
-//  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_TIM1);
-//
-//  /* USER CODE BEGIN TIM1_Init 1 */
-//
-//  /* Set timer prescaler value (timer frequency) */
-//  /* Note: Value TIMER_FREQUENCY_RANGE_MAX_HZ with factor 2 to have a minimum
-//           timer resolution */
-//  tim_prescaler = __LL_TIM_CALC_PSC(SystemCoreClock, TIMER_FREQUENCY_RANGE_MAX_HZ * 2);
-//
-//  /* Set timer period value (time base frequency) */
-//  tim_period = __LL_TIM_CALC_ARR(SystemCoreClock, tim_prescaler, TIMER_FREQUENCY_HZ);
-//
-//  /* USER CODE END TIM1_Init 1 */
-//  TIM_InitStruct.Prescaler = tim_prescaler;
-//  TIM_InitStruct.CounterMode = LL_TIM_COUNTERMODE_UP;
-//  TIM_InitStruct.Autoreload = tim_period;
-//  TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
-//  TIM_InitStruct.RepetitionCounter = 0;
-//  LL_TIM_Init(TIM1, &TIM_InitStruct);
-//  LL_TIM_DisableARRPreload(TIM1);
-//  LL_TIM_SetClockSource(TIM1, LL_TIM_CLOCKSOURCE_INTERNAL);
-//  LL_TIM_SetTriggerOutput(TIM1, LL_TIM_TRGO_UPDATE);
-//  LL_TIM_SetTriggerOutput2(TIM1, LL_TIM_TRGO2_UPDATE);
-//  LL_TIM_DisableMasterSlaveMode(TIM1);
-//  /* USER CODE BEGIN TIM1_Init 2 */
-//
-//  /* USER CODE END TIM1_Init 2 */
-//
-//}
-//
-///**
-//  * Enable DMA controller clock
-//  */
-//static void MX_DMA_Init(void) {
-//
-//  /* Init with LL driver */
-//  /* DMA controller clock enable */
-//  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
-//
-//  /* DMA interrupt init */
-//  /* DMA1_Channel1_IRQn interrupt configuration */
-//  NVIC_SetPriority(DMA1_Channel1_IRQn, 0);
-//  NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-//
-//}
-
 /**
   * @brief GPIO Initialization Function
   * @param None
@@ -1424,134 +917,7 @@ void RFC4_high(void){
 }
 
 
-/* USER CODE BEGIN 4 */
 
-/**
-  * @brief  Perform ADC activation procedure to make it ready to convert
-  *         (ADC instance: ADC1).
-  * @param  None
-  * @retval None
-  */
-//void ADC_Activate(void) {
-//  __IO uint32_t wait_loop_index = 0U;
-//  __IO uint32_t backup_setting_adc_dma_transfer = 0U;
-//  #if (USE_TIMEOUT == 1)
-//  uint32_t Timeout = 0U; /* Variable used for timeout management */
-//  #endif /* USE_TIMEOUT */
-//
-//  /*## Operation on ADC hierarchical scope: ADC instance #####################*/
-//
-//  /* Note: Hardware constraint (refer to description of the functions         */
-//  /*       below):                                                            */
-//  /*       On this STM32 series, setting of these features is conditioned to  */
-//  /*       ADC state:                                                         */
-//  /*       ADC must be disabled.                                              */
-//  /* Note: In this example, all these checks are not necessary but are        */
-//  /*       implemented anyway to show the best practice usages                */
-//  /*       corresponding to reference manual procedure.                       */
-//  /*       Software can be optimized by removing some of these checks, if     */
-//  /*       they are not relevant considering previous settings and actions    */
-//  /*       in user application.                                               */
-//  if (LL_ADC_IsEnabled(ADC1) == 0)
-//  {
-//    /* Enable ADC internal voltage regulator */
-//    LL_ADC_EnableInternalRegulator(ADC1);
-//
-//    /* Delay for ADC internal voltage regulator stabilization.                */
-//    /* Compute number of CPU cycles to wait for, from delay in us.            */
-//    /* Note: Variable divided by 2 to compensate partially                    */
-//    /*       CPU processing cycles (depends on compilation optimization).     */
-//    /* Note: If system core clock frequency is below 200kHz, wait time        */
-//    /*       is only a few CPU processing cycles.                             */
-//    wait_loop_index = ((LL_ADC_DELAY_INTERNAL_REGUL_STAB_US * (SystemCoreClock / (100000 * 2))) / 10);
-//    while(wait_loop_index != 0)
-//    {
-//      wait_loop_index--;
-//    }
-//
-//    /* Disable ADC DMA transfer request during calibration */
-//    /* Note: Specificity of this STM32 series: Calibration factor is           */
-//    /*       available in data register and also transferred by DMA.           */
-//    /*       To not insert ADC calibration factor among ADC conversion data   */
-//    /*       in DMA destination address, DMA transfer must be disabled during */
-//    /*       calibration.                                                     */
-//    backup_setting_adc_dma_transfer = LL_ADC_REG_GetDMATransfer(ADC1);
-//    LL_ADC_REG_SetDMATransfer(ADC1, LL_ADC_REG_DMA_TRANSFER_NONE);
-//
-//    /* Run ADC self calibration */
-//    LL_ADC_StartCalibration(ADC1);
-//
-//    /* Poll for ADC effectively calibrated */
-//    #if (USE_TIMEOUT == 1)
-//    Timeout = ADC_CALIBRATION_TIMEOUT_MS;
-//    #endif /* USE_TIMEOUT */
-//
-//    while (LL_ADC_IsCalibrationOnGoing(ADC1) != 0)
-//    {
-//    #if (USE_TIMEOUT == 1)
-//      /* Check Systick counter flag to decrement the time-out value */
-//      if (LL_SYSTICK_IsActiveCounterFlag())
-//      {
-//        if(Timeout-- == 0)
-//        {
-//          /* Error: Time-out */
-//          Error_Handler();
-//        }
-//      }
-//    #endif /* USE_TIMEOUT */
-//    }
-//
-//    /* Restore ADC DMA transfer request after calibration */
-//    LL_ADC_REG_SetDMATransfer(ADC1, backup_setting_adc_dma_transfer);
-//
-//    /* Delay between ADC end of calibration and ADC enable.                   */
-//    /* Note: Variable divided by 2 to compensate partially                    */
-//    /*       CPU processing cycles (depends on compilation optimization).     */
-//    wait_loop_index = (ADC_DELAY_CALIB_ENABLE_CPU_CYCLES >> 1);
-//    while(wait_loop_index != 0)
-//    {
-//      wait_loop_index--;
-//    }
-//
-//    /* Enable ADC */
-//    LL_ADC_Enable(ADC1);
-//
-//    /* Poll for ADC ready to convert */
-//    #if (USE_TIMEOUT == 1)
-//    Timeout = ADC_ENABLE_TIMEOUT_MS;
-//    #endif /* USE_TIMEOUT */
-//
-//    while (LL_ADC_IsActiveFlag_ADRDY(ADC1) == 0)
-//    {
-//    #if (USE_TIMEOUT == 1)
-//      /* Check Systick counter flag to decrement the time-out value */
-//      if (LL_SYSTICK_IsActiveCounterFlag())
-//      {
-//        if(Timeout-- == 0)
-//        {
-//          /* Error: Time-out */
-//          Error_Handler();
-//        }
-//      }
-//    #endif /* USE_TIMEOUT */
-//    }
-//
-//    /* Note: ADC flag ADRDY is not cleared here to be able to check ADC       */
-//    /*       status afterwards.                                               */
-//    /*       This flag should be cleared at ADC Deactivation, before a new    */
-//    /*       ADC activation, using function "LL_ADC_ClearFlag_ADRDY()".       */
-//  }
-//
-//  /*## Operation on ADC hierarchical scope: ADC group regular ################*/
-//  /* Note: No operation on ADC group regular performed here.                  */
-//  /*       ADC group regular conversions to be performed after this function  */
-//  /*       using function:                                                    */
-//  /*       "LL_ADC_REG_StartConversion();"                                    */
-//
-//  /*## Operation on ADC hierarchical scope: ADC group injected ###############*/
-//  /* Note: Feature not available on this STM32 series */
-//
-//}
 
 /**
   * @brief  Turn-on LED1.
@@ -1594,825 +960,67 @@ void LED_Toggle(void) {
   * @retval None
   */
 
-void AdcDmaTransferComplete_Callback() {
-
-#if 1
-	sq_push(&q_signal, (int16_t *)uhADCxConvertedData, ADC_CONVERTED_DATA_BUFFER_SIZE);
-        #if 0
-	if (ubDmaTransferStatus == 0){
-		sq_push(&q_voice,  uhADCxConvertedData, ADC_CONVERTED_DATA_BUFFER_SIZE);
-	}
-        #endif
-#else
-
-	 LED_On();
-	static uint16_t size = 33838;//sizeof(hga_test) /2;
-	static int idx = 0;
-
-	for(int i = 0; i < ADC_CONVERTED_DATA_BUFFER_SIZE; i++ ){
-		uhADCxConvertedData[i] = hga22[i + idx ];
-	}
-
-	sq_push(&q_signal, uhADCxConvertedData, ADC_CONVERTED_DATA_BUFFER_SIZE);
-
-	idx += ADC_CONVERTED_DATA_BUFFER_SIZE;
-
-	if (idx >= size - ADC_CONVERTED_DATA_BUFFER_SIZE) {
-		idx = 0;
-	}
-#endif
-	ubDmaTransferStatus = 1;
-	ubDmaTransferCnt++;
-}
-
-
-/**
-  * @brief  DMA half transfer callback
-  * @note   This function is executed when the half transfer interrupt
-  *         is generated
-  * @retval None
-  */
-void AdcDmaTransferHalf_Callback() {
-//  uint32_t tmp_index;
+//void AdcDmaTransferComplete_Callback() {
 //
-//  /* Data integrity check: Ensure that 1st half of buffer has not yet been
-//     overwritten by DMA transfer: end of 2nd half of buffer should equal to
-//     init value */
-//  if (uhADCxConvertedData[ADC_CONVERTED_DATA_BUFFER_SIZE - 1] != VAR_CONVERTED_DATA_INIT_VALUE)
+//
+//	sq_push(&q_signal, (int16_t *)uhADCxConvertedData, ADC_CONVERTED_DATA_BUFFER_SIZE);
+//
+//	ubDmaTransferStatus = 1;
+//	ubDmaTransferCnt++;
+//}
+//
+//
+///**
+//  * @brief  DMA half transfer callback
+//  * @note   This function is executed when the half transfer interrupt
+//  *         is generated
+//  * @retval None
+//  */
+//void AdcDmaTransferHalf_Callback() {
+//
+//}
+//
+//
+//
+///**
+//  * @brief  DMA transfer error callback
+//  * @note   This function is executed when the transfer error interrupt
+//  *         is generated during DMA transfer
+//  * @retval None
+//  */
+//void AdcDmaTransferError_Callback() {
+//  if(ubDmaTransferStatus == 1)
 //  {
-//
-//    LED_Toggle();
+//    /* Update status variable of DMA transfer */
+//    ubDmaTransferStatus = 0;
 //  }
 //
-//  /* Computation of ADC conversions raw data to physical values
-//     using LL ADC driver helper macro. */
-//  /* Management of the 1st half of buffer */
-//  for (tmp_index = 0; tmp_index < (ADC_CONVERTED_DATA_BUFFER_SIZE/2); tmp_index++)
-//  {
-//    uhADCxConvertedData_Voltage_mVolt[tmp_index] = __LL_ADC_CALC_DATA_TO_VOLTAGE(VDDA_APPLI, uhADCxConvertedData[tmp_index], LL_ADC_RESOLUTION_12B);
-//  }
+//  /* Error detected during DMA transfer */
+//  Error_Handler();
+//}
 //
-//  /* Set half-buffer last data to init value for further data integrity check */
-//  uhADCxConvertedData[tmp_index - 1] = VAR_CONVERTED_DATA_INIT_VALUE;
+///**
+//  * @brief  ADC group regular overrun interruption callback
+//  * @note   This function is executed when ADC group regular
+//  *         overrun error occurs.
+//  * @retval None
+//  */
+//void AdcGrpRegularOverrunError_Callback(void) {
+//  /* Note: Disable ADC interruption that caused this error before entering in
+//           infinite loop below. */
 //
-//  /* Update status variable of DMA transfer */
-//  ubDmaTransferStatus = 0;
-}
+//  /* In case of error due to overrun: Disable ADC group regular overrun interruption */
+//  LL_ADC_DisableIT_OVR(ADC1);
+//
+//  /* Error reporting */
+//  Error_Handler();
+//}
+//
 
 
 
-/**
-  * @brief  DMA transfer error callback
-  * @note   This function is executed when the transfer error interrupt
-  *         is generated during DMA transfer
-  * @retval None
-  */
-void AdcDmaTransferError_Callback() {
-  if(ubDmaTransferStatus == 1)
-  {
-    /* Update status variable of DMA transfer */
-    ubDmaTransferStatus = 0;
-  }
 
-  /* Error detected during DMA transfer */
-  Error_Handler();
-}
 
-/**
-  * @brief  ADC group regular overrun interruption callback
-  * @note   This function is executed when ADC group regular
-  *         overrun error occurs.
-  * @retval None
-  */
-void AdcGrpRegularOverrunError_Callback(void) {
-  /* Note: Disable ADC interruption that caused this error before entering in
-           infinite loop below. */
 
-  /* In case of error due to overrun: Disable ADC group regular overrun interruption */
-  LL_ADC_DisableIT_OVR(ADC1);
 
-  /* Error reporting */
-  Error_Handler();
-}
 
-
-
-#if 1
-float Goertzel_coef(float freq, int samp_rate) {
-  float coef = 2.0 * cos((2.0 * PI * freq) / samp_rate);
-  return coef;
-}
-
-float Goertzel_mag(uint16_t samples[], int depth, float coef, int adc_midpoint) {
-	float Q1 = 0;
-	float Q2 = 0;
-	for (int n = 0; n < depth; n++) {
-		float Q0 = coef * Q1 - Q2 + (float)((float)samples[n] - adc_midpoint);
-		Q2 = Q1;
-		Q1 = Q0;
-	}
-	return sqrt(Q1 * Q1 + Q2 * Q2 - coef * Q1 * Q2);
-
-}
-#endif
-
-int16_t Goertzel_coef_q15(float freq, int samp_rate)
-{
-    float w = (2.0f * (float)M_PI * freq) / (float)samp_rate;
-    float c = 2.0f * cosf(w);
-
-    return (int16_t)(c * 32768.0f);   // Q15
-}
-
-int32_t Goertzel_mag_fast_q15(const int16_t *samples,
-                              int depth,
-                              int16_t coef,
-                              int32_t adc_mid)
-{
-    int32_t q0 = 0;
-    int32_t q1 = 0;
-    int32_t q2 = 0;
-
-    for (int n = 0; n < depth; n++) {
-
-        int32_t x = (int32_t)samples[n] - adc_mid;
-
-        // 32bit * 16bit → 32bit (gyors)
-        q0 = x + ((coef * q1) >> 15) - q2;
-
-        q2 = q1;
-        q1 = q0;
-    }
-
-#if 0
-    int32_t mag = abs(q1)+abs(q2) ;
-#else
-    // magnitude² (csak itt 64bit → OK)
-    int64_t mag =
-          (int64_t)q1 * q1
-        + (int64_t)q2 * q2
-        - ((int64_t)coef * q1 >> 15) * q2;
-    mag = sqrt((double)mag);
-
-#endif
-
-    if (mag < 0) mag = 0;
-    if (mag > INT32_MAX) mag = INT32_MAX;
-
-    return (int32_t)mag;
-}
-
-
-
-/* ================== BIT → BYTE ================== */
-
-uint8_t bit_to_byte(uint8_t bit, uint8_t *out) {
-  static uint8_t shift = 0;
-  static uint8_t cnt = 0;
-
-  shift = (shift >> 1) | (bit ? 0x80 : 0);
-  cnt++;
-
-  if (cnt == 8) {
-    *out = shift;
-    cnt = 0;
-    shift = 0;
-    return 1;
-  }
-  return 0;
-}
-
-/* ================== FRAME PARSE ================== */
-
-uint32_t getBits(const uint8_t *data, uint32_t pos, uint32_t len) {
-  uint32_t v = 0;
-  for (uint32_t i = 0; i < len; i++) {
-    uint8_t b = (data[(pos+i)/8] >> ((pos+i)%8)) & 1;
-    v |= (b << i);
-  }
-  return v;
-}
-#ifndef FLT_MAX
-#define FLT_MAX 3.402823466e+38F /* max value */
-#endif
-#ifndef FLT_MIN
-#define FLT_MIN 1.175494351e-38F /* min positive value */
-#endif
-static float signal = FLT_MIN;
-static float noise  = FLT_MAX;
-
-
-
-void parse_frame(uint8_t *frame) {
-
-  if (frame[0]!=0x68 || frame[1]!=0x0A || frame[2]!=0x0A || frame[3]!=0x68)
-    return;
-
-  uint8_t sum = 0;
-  for (int i=4;i<14;i++) sum += frame[i];
-  if (frame[14]!=sum || frame[15]!=0x16) return;
-
-  uint8_t *d = &frame[7];
-
-  //uint32_t ms  = getBits(d,  0,10);
-  uint32_t sec = getBits(d, 10, 6);
-  uint32_t min = getBits(d, 16, 6);
-  uint32_t hr  = getBits(d, 24, 5);
-  uint32_t day = getBits(d, 32, 5);
-  uint32_t mon = getBits(d, 40, 4);
-  uint32_t yr  = getBits(d, 48, 7);
-  uint8_t dst  = getBits(d, 31, 1);
-
-  Uart2_printf("TIME: 20");
-  Uart2_printf("%d",yr);
-  Uart2_printf("-");
-  Uart2_printf("%s",mon<10?"0":""); Uart2_printf("%d",mon);
-  Uart2_printf("-");
-  Uart2_printf("%s",day<10?"0":""); Uart2_printf("%d",day);
-  Uart2_printf(" ");
-  Uart2_printf("%s",hr<10?"0":""); Uart2_printf("%d",hr);
-  Uart2_printf(":");
-  Uart2_printf("%s",min<10?"0":""); Uart2_printf("%d",min);
-  Uart2_printf(":");
-  Uart2_printf("%s",sec<10?"0":""); Uart2_printf("%d\r\n",sec);
-
-  datetime_t dt;
-
-  dt.yr = yr+2000;
-  dt.mon = mon;
-  dt.day = day;
-  dt.hr  = hr;
-  dt.min = min;
-  dt.sec = sec;
-
-  uint64_t now = datetime_to_unix_us(&dt, 0);
-
-  /* RTC -> dt mezők feltöltése */
-  NVIC_DisableIRQ(SysTick_IRQn);
-  unix_us = now;
-  NVIC_EnableIRQ(SysTick_IRQn);
-
-
-
-
-//  printf(".");
-//  printf("%d ",ms);
-//  printf(" DST:");
-//  printf("%s \r\n",dst?"igen":"nem");
-
-//  float snr_db = 10.0f * log10f(signal / noise);
-
-  sq_discard(&q_byte,16);
-
-
-
-  if (send_array) {
-	  send_array = 0;
-
-  #if 0
-
-	  printf("\r\nDATA [%d]:\r\n",sq_size(&q_voice));
-	  while(1){
-	 	if (sq_size(&q_voice) > 0){
-	      uint16_t buffer[32];
-	 	  sq_peek(&q_voice,buffer,32);
-	 	  sq_discard(&q_voice,32);
-		  for (int i = 0;i < 32; i++){
-			  printf("%d;",buffer[i]);
-			  printf("\r\n");
-		  }
-		  //printf("\r\n");
-	 	} else {
-	 		break;
-	 	}
-	  }
-
-#endif
-  }
-
-}
-
-
-void cmd_agc_power(int range) {
-
-    //Uart2_printf("AGC - %d\r\n", range);
-
-    switch (range) {
-        case 0 : {
-           AGC1_high();
-           AGC2_high();
-           AGC3_high();
-           AGC4_high();
-        } break;
-        case 1 : {
-           AGC1_high();
-           AGC2_high();
-           AGC3_high();
-           AGC4_low();
-        } break;
-        case 2 : {
-           AGC1_high();
-           AGC2_high();
-           AGC3_low();
-           AGC4_low();
-        } break;
-        case 3 : {
-           AGC1_high();
-           AGC2_low();
-           AGC3_low();
-           AGC4_low();
-        } break;
-        case 4 : {
-           AGC1_low();
-           AGC2_low();
-           AGC3_low();
-           AGC4_low();
-        } break;
-        default : {
-        }
-    }
-}
-
-void AGC_HW_process(int range) {
-    static int gain = 0;
-
-    static int range_avg = 0;
-    static int delay = 0;
-    static int start = 1;
-
-    if (start){
-        start = 0;
-        range_avg = range;
-
-        if (GETBIT(agc,0) == 0) {
-            gain  = 4;
-        } else
-        if (GETBIT(agc,1) == 0) {
-            gain  = 3;
-        }  else
-        if (GETBIT(agc,2) == 0) {
-            gain  = 2;
-        }
-        else
-        if (GETBIT(agc,3) == 0) {
-            gain  = 1;
-        }
-    }
-    range_avg = range;
-    range_avg /=  2;
-
-    if (agc_disable == 1) {
-        delay = -59000;
-        agc_disable = 0;
-    }
-
-
-    if (++delay < 10000) return;
-
-    datetime_t dt;
-	uint64_t now  = get_unix_time_us();
-	unix_us_to_datetime(now, &dt);
-    if (dt.sec % 10 != 3) return;
-
-    delay = 0;
-
-     if (range_avg > 1500) {
-        if (gain > 0) gain --;
-     } else
-
-     if (range_avg <  1000) {
-        if (gain < 4) gain ++;
-     }
-
-    //Uart2_printf("AGC_process range %d, agc %d, ",range_avg,gain);
-
-    cmd_agc_power(gain);
-
-
-}
-
-void AGC_SW_process(int16_t* buffer, int depth , int range , int avg) {
-
-    uint8_t shift = 0;
-    if (range > 0) {
-        if (range < 256)       shift = 4; // ~16x erősítés
-        else if (range < 512)  shift = 3; // ~8x erősítés
-        else if (range < 1024) shift = 2; // ~4x erősítés
-        else if (range < 2048) shift = 1; // ~2x erősítés
-        else                   shift = 0; // ~1x erősítés
-    }
-
-    for(int i = 0; i < depth; i++) {
-        buffer[i] = (int16_t)((buffer[i] - avg) << shift);
-    }
-
-}
-
-#define MAX(x, y) (((x) > (y)) ? (x) : (y))
-#define MIN(x, y) (((x) < (y)) ? (x) : (y))
-
-void loop(int16_t* buffer, int depth) {
-
-
-
-  static uint8_t state = 0;
-  static uint8_t byte = 0;
-  static uint8_t parity = 0;
-  static uint8_t start = 0;
-  static uint8_t bit_cnt = 0;
-  static uint8_t send = 0;
-  uint8_t fsk_bit = 0;
-
-
-
-
-
-  min = INT_MAX;
-  max = INT_MIN;
-  signal = FLT_MIN;
-
-  for(int i = 0; i < depth; i++) {
-	  if (min >(int) buffer[i]) min = (int) buffer[i];
-	  if (max <(int) buffer[i]) max = (int) buffer[i];
-  }
-
-  int32_t avg = (max + min) / 2;
-  int32_t range = max - min;
-
-  AGC_HW_process(range);
-  AGC_SW_process(buffer,depth,range,avg);
-  avg = 0;
-
-  int32_t m1 = Goertzel_mag_fast_q15((int16_t *)buffer, depth,(int16_t) coef1, avg);
-  int32_t m2 = Goertzel_mag_fast_q15((int16_t *)buffer, depth,(int16_t) coef2, avg);
-
-
-  max_snr1 = MAX((int)m1,max_snr1);
-  max_snr2 = MAX((int)m2,max_snr2);
-  min_snr1 = MIN((int)m1,min_snr1);
-  min_snr2 = MIN((int)m2,min_snr2);
-
-  uint16_t bit = (m1 > m2) ? 1 : 0;
-
-
-
-  {
-	  if (signal < MAX(m1,m2)){
-		  signal =  MAX(m1,m2);
-		  snr = signal;
-	  }
-	  if (noise >  MIN(m1,m2)) {
-		  noise = MIN(m1,m2);
-	  }
-
-  }
-
-  {
-	  if (start != 1){
-		  if (ubDmaTransferCnt % 1000 == 0){
-			  // printf("SNR : %d , min %d, max %d\r\n", (int)signal, (int)min, (int) max );
-
-			   signal = FLT_MIN;
-			   noise  = 1000;
-		  }
-	  }
-
-  }
-
-
-  sq_push(&q_fsk,(int16_t *)&bit,1);
-
-  if (sq_size(&q_fsk) >= 5){
-	  uint16_t bits[5] = {0};
-	  sq_peek(&q_fsk,(int16_t *)bits,5);
-	  sq_discard(&q_fsk,1);
-	  uint8_t sum = 0;
-	  for (uint8_t i=0;i<OFFSET_BITS;i++) {
-		  sum += bits[i];
-	  }
-	  fsk_bit = (sum >= 3) ? 1 : 0;
-
-
-	  if (start == 0){
-
-
-
-		  if (sum <2){
-			  start = 1;
-			  send  = 5;
-			  bit_cnt = 0;
-			  //printf("\r\n--start----\r\n");
-
-			  signal = MAX(m1, m2);
-			  noise  = MIN(m1, m2); // elkerülni a 0-t
-              snr = signal;
-
-		  }
-
-	  }
-
-
-
-  }
-
-
-
-  if (start != 1){
-	  state = 0;
-	  bit_cnt = 0;
-	  return;
-  }
-
-  if (++send < 5){
-  	  return;
-  }
-  send = 0;
-
-  switch (state) {
-
-    case 0: // start
-      if (fsk_bit == 0) {
-        state = 1;
-        byte = 0;
-        send = 0;
-      }
-      break;
-
-    case 1: { // data
-      if (bit_to_byte(fsk_bit, &byte)){
-          state = 2;
-      }
-      } break;
-
-    case 2:  {// parity
-      parity = __builtin_parity(byte);
-      if (parity == fsk_bit){
-          state = 3;
-        }
-      else {
-        state = 0;
-      }
-      }break;
-
-    case 3: { // stop
-
-      if (fsk_bit == 1) {
-          uint16_t data = byte;
-    	  sq_push(&q_byte,(int16_t *)&data,1);
-
-
-
-    	  while(1){
-			   if (sq_size(&q_byte) >= 16){
-//				   printf("\r\n");
-				   int16_t buffer[16];
-				   uint8_t buffer_byte[16];
-
-				   sq_peek(&q_byte,buffer,16);
-				   sq_discard(&q_byte,1);
-				   for (int i = 0; i < 16; i++){
-					   buffer_byte[i] = buffer[i];
-				   }
-
-
-				   parse_frame(buffer_byte);
-
-
-			   } else{
-				   break;
-			   }
-    	  }
-      } else {
- 		 start 		= 0;
- 		 send  		= 0;
- 		 bit_cnt 	= 0;
-
- 		 state  	= 0;
- 		 byte   	= 0;
- 		 parity 	= 0;
-      }
-      state = 0;
-     } break;
-
-     default :{
-     }
-
-  }
-
-
-  if (++bit_cnt >= 11){
-		 start = 0;
-		 send  = 0;
-		 bit_cnt = 0;
-
-		 state      = 0;
-		 byte   = 0;
-		 parity = 0;
-
-
-	 }
-
-
-
-}
-
-
-void loop2(int16_t *buffer, int depth)
-{
-    /* ================= UART ================= */
-
-    static uint8_t uart_state = 0;
-    static uint8_t byte = 0;
-    static uint8_t bit_cnt = 0;
-    static uint8_t parity = 0;
-
-    /* ================= BIT FILTER ================= */
-
-    static uint8_t bit_hist = 0;
-
-    /* ================= DEMOD ================= */
-
-    static int32_t diff_lp = 0;
-    static int32_t agc = 1000;
-    static int32_t noise_floor = 100;
-
-    /* ================= FRAME SYNC ================= */
-
-    static uint32_t sync = 0;
-    static uint8_t frame_sync = 0;
-
-    static uint8_t frame[32];
-    static uint8_t frame_pos = 0;
-
-    /* ================= SIGNAL RANGE ================= */
-    /// int32_t
-    min = INT_MAX;
-    max = INT_MIN;
-
-    for(int i=0;i<depth;i++)
-    {
-        int16_t v = buffer[i];
-
-        if(v < min) min = v;
-        if(v > max) max = v;
-    }
-
-    int32_t avg = (min + max) >> 1;
-
-    for(int i=0;i<depth;i++)
-        buffer[i] -= avg;
-
-    /* =================================================
-       GOERTZEL
-       ================================================= */
-
-    int32_t m1 = Goertzel_mag_fast_q15((int16_t*)buffer, depth, (int16_t)coef1, avg);
-    int32_t m2 = Goertzel_mag_fast_q15((int16_t*)buffer, depth, (int16_t)coef2, avg);
-
-
-#if 1
-      max_snr1 = MAX((int)m1,max_snr1);
-      max_snr2 = MAX((int)m2,max_snr2);
-      min_snr1 = MIN((int)m1,min_snr1);
-      min_snr2 = MIN((int)m2,min_snr2);
-
-      snr = MAX(m1, m2);
-
-#endif
-
-    int32_t diff = m1 - m2;
-
-    /* ================= AGC ================= */
-
-    int32_t mag = abs(diff);
-
-    agc += (mag - agc) >> 3;
-
-    if(agc < 1)
-        agc = 1;
-
-    diff = (diff << 8) / agc;
-
-    /* ================= NOISE FLOOR ================= */
-
-    noise_floor += (mag - noise_floor) >> 6;
-
-    if(mag < (noise_floor << 1))
-        return;
-
-    /* ================= LOWPASS ================= */
-
-    diff_lp += (diff - diff_lp) >> 2;
-
-    uint8_t raw_bit = (diff_lp > 0);
-
-    /* ================= MAJORITY FILTER ================= */
-
-    bit_hist = ((bit_hist << 1) | raw_bit) & 0x07;
-    uint8_t fsk_bit = (__builtin_popcount(bit_hist) >= 2);
-
-    /* =================================================
-       UART DECODER
-       ================================================= */
-
-    static uint8_t bit_clk = 0;
-
-    if(++bit_clk < 5)
-    return;
-
-    bit_clk = 0;
-
-    switch(uart_state)
-    {
-        /* ---------- START ---------- */
-
-        case 0:
-
-            if(fsk_bit == 0)
-            {
-                uart_state = 1;
-                byte = 0;
-                bit_cnt = 0;
-                bit_hist = 0;
-            }
-
-        break;
-
-        /* ---------- DATA ---------- */
-
-        case 1:
-
-            //byte >>= 1;
-
-            if(fsk_bit){
-                byte |= (fsk_bit << bit_cnt);
-                bit_cnt++;
-            }
-                //byte |= 0x80;
-
-            bit_cnt++;
-
-            if(bit_cnt >= 8)
-                uart_state = 2;
-
-        break;
-
-        /* ---------- PARITY ---------- */
-
-        case 2:
-
-            parity = __builtin_parity(byte);
-
-            if(parity == fsk_bit)
-                uart_state = 3;
-            else
-                uart_state = 0;
-
-        break;
-
-        /* ---------- STOP ---------- */
-
-        case 3:
-
-            if(fsk_bit == 1)
-            {
-                /* ================= SYNC SEARCH ================= */
-
-                if(!frame_sync)
-                {
-                    sync = (sync << 8) | byte;
-
-                    if(sync == 0x680A0A68)
-                    {
-                        frame_sync = 1;
-
-                        frame[0] = 0x68;
-                        frame[1] = 0x0A;
-                        frame[2] = 0x0A;
-                        frame[3] = 0x68;
-
-                        frame_pos = 4;
-                    }
-                }
-                else
-                {
-                    if(frame_pos < sizeof(frame))
-                    {
-                        frame[frame_pos++] = byte;
-                    }
-
-                    if(frame_pos >= 16)
-                    {
-                        parse_frame(frame);
-
-                        frame_sync = 0;
-                        frame_pos = 0;
-                    }
-                }
-            }
-
-            uart_state = 0;
-
-        break;
-    }
-}

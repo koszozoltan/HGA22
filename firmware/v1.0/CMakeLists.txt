@@ -113,11 +113,11 @@ file(GLOB_RECURSE CORE_SOURCES
 file(GLOB DRIVERS_SOURCES
      Drivers/STM32C0xx_HAL_Driver/Src/*.c
      Drivers/BSP/STM32C0xx_Nucleo/*.c
-     Drivers/CMSIS/DSP/Source/BasicMathFunctions/*.c
-     Drivers/CMSIS/DSP/Source/CommonTables/*.c
-     Drivers/CMSIS/DSP/Source/ComplexMathFunctions/*.c
-     Drivers/CMSIS/DSP/Source/FastMathFunctions/*.c
-     Drivers/CMSIS/DSP/Source/TransformFunctions/*.c
+#     Drivers/CMSIS/DSP/Source/BasicMathFunctions/*.c
+#     Drivers/CMSIS/DSP/Source/CommonTables/*.c
+#     Drivers/CMSIS/DSP/Source/ComplexMathFunctions/*.c
+#     Drivers/CMSIS/DSP/Source/FastMathFunctions/*.c
+#     Drivers/CMSIS/DSP/Source/TransformFunctions/*.c
      Drivers/tinyusb/typec/usbc.c
      Drivers/tinyusb/portable/st/typec/typec_stm32.c
      Drivers/tinyusb/portable/st/stm32_fsdev/dcd_stm32_fsdev.c

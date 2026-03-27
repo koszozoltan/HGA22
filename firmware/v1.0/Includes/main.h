@@ -112,6 +112,7 @@ extern int send_snr;
 extern int search;
 extern int agc_disable;
 
+
 #define BV(x)                 (1UL << (x))
 #define CLRBIT(reg, bit)      (reg) &= ~BV(bit)
 #define SETBIT(reg, bit)      (reg) |=  BV(bit)

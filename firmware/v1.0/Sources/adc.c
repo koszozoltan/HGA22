@@ -6,62 +6,40 @@
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "main.h"
+
 #include <string.h>
+#include <math.h>
+#include "util.h"
 #include "queue.h"
-#include "math.h"
+
 #include "ringbuffer.h"
 #include "tcp_server.h"
 #include "arm_math.h"
+#include "main.h"
 #include "adc.h"
+
+
 
 /* Private includes ----------------------------------------------------------*/
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
-/* Timeout values for ADC operations. */
-  /* (calibration, enable settling time, disable settling time, ...)          */
-  /* Values defined to be higher than worst cases: low clock frequency,       */
-  /* maximum prescalers.                                                      */
-  /* Note: ADC channel configuration ready (ADC_CHANNEL_CONF_RDY_TIMEOUT_MS)  */
-  /*       is added in CubeMx code section.                                   */
-  /* Unit: ms                                                                 */
+
   #define ADC_CALIBRATION_TIMEOUT_MS       (   1UL)
   #define ADC_ENABLE_TIMEOUT_MS            (   1UL)
   #define ADC_DISABLE_TIMEOUT_MS           (   1UL)
   #define ADC_STOP_CONVERSION_TIMEOUT_MS   (   1UL)
   #define ADC_CONVERSION_TIMEOUT_MS        (4000UL)
 
-  /* Delay between ADC end of calibration and ADC enable.                     */
-  /* Delay estimation in CPU cycles: Case of ADC enable done                  */
-  /* immediately after ADC calibration, ADC clock setting slow                */
-  /* (LL_ADC_CLOCK_ASYNC_DIV32). Use a higher delay if ratio                  */
   /* (CPU clock / ADC clock) is above 32.                                     */
   #define ADC_DELAY_CALIB_ENABLE_CPU_CYCLES  (LL_ADC_DELAY_CALIB_ENABLE_ADC_CYCLES * 32)
 
-/* Definitions of environment analog values */
-  /* Value of analog reference voltage (Vref+), connected to analog voltage   */
   /* supply Vdda (unit: mV).                                                  */
   #define VDDA_APPLI                       (3300UL)
-
-///* Definitions of data related to this example */
-//  /* Definition of ADCx conversions data table size */
-////  #define ADC_CONVERTED_DATA_BUFFER_SIZE   (  64UL)
-//  #define ADC_CONVERTED_DATA_BUFFER_SIZE   (  8UL)
-
 
   /* Init variable out of expected ADC conversion data range */
   #define VAR_CONVERTED_DATA_INIT_VALUE    (__LL_ADC_DIGITAL_SCALE(LL_ADC_RESOLUTION_12B) + 1)
 
-
-
-
-  /* Parameters of time base (used as ADC conversion trigger) */
-  /* Time base frequency (unit: Hz). With a timer 16 bits and time base       */
-  /* freq max 32kHz, range is [min=1Hz, max=32kHz].                           */
-//  #define TIMER_FREQUENCY_HZ               (8000UL)
-
-//  #define TIMER_FREQUENCY_HZ               (8000UL)
 
   /* Time base range frequency maximum (unit: Hz).*/
   /* With a timer 16 bits, minimum frequency will be 1/32000 times this value.*/
@@ -73,7 +51,7 @@ __IO uint16_t uhADCxConvertedData[ADC_CONVERTED_DATA_BUFFER_SIZE];
 __IO uint8_t ubDmaTransferStatus = 2U; /* Variable set into DMA interruption callback */
 __IO uint8_t ubDmaTransferCnt= 0; /* Variable set into DMA interruption callback */
 
-
+extern stream_q_t q_signal;
 
 void ADC_Init(void) {
 
@@ -494,5 +472,64 @@ void ADC_Activate(void) {
   /* Note: Feature not available on this STM32 series */
 
 }
+
+
+void AdcDmaTransferComplete_Callback() {
+
+
+	sq_push(&q_signal, (int16_t *)uhADCxConvertedData, ADC_CONVERTED_DATA_BUFFER_SIZE);
+
+	ubDmaTransferStatus = 1;
+	ubDmaTransferCnt++;
+}
+
+
+/**
+  * @brief  DMA half transfer callback
+  * @note   This function is executed when the half transfer interrupt
+  *         is generated
+  * @retval None
+  */
+void AdcDmaTransferHalf_Callback() {
+
+}
+
+
+
+/**
+  * @brief  DMA transfer error callback
+  * @note   This function is executed when the transfer error interrupt
+  *         is generated during DMA transfer
+  * @retval None
+  */
+void AdcDmaTransferError_Callback() {
+  if(ubDmaTransferStatus == 1)
+  {
+    /* Update status variable of DMA transfer */
+    ubDmaTransferStatus = 0;
+  }
+
+  /* Error detected during DMA transfer */
+  Error_Handler();
+}
+
+/**
+  * @brief  ADC group regular overrun interruption callback
+  * @note   This function is executed when ADC group regular
+  *         overrun error occurs.
+  * @retval None
+  */
+void AdcGrpRegularOverrunError_Callback(void) {
+  /* Note: Disable ADC interruption that caused this error before entering in
+           infinite loop below. */
+
+  /* In case of error due to overrun: Disable ADC group regular overrun interruption */
+  LL_ADC_DisableIT_OVR(ADC1);
+
+  /* Error reporting */
+  Error_Handler();
+}
+
+
 
 
