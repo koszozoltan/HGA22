@@ -1,6 +1,8 @@
 HGA22 Time Signal Receiver
 This project is used to receive and decode the time signals broadcasted at 135.6 kHz by the HGA22 transmitter station in Lakihegy. The system is capable of processing phase-shift keying (FSK) signals and extracting time information.
 
+https://github.com/5an2i/USB_HGA22
+
 📋 Features
 Frequency: 135.6 kHz (LF band)
 
